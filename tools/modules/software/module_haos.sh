@@ -34,10 +34,7 @@ function module_haos() {
 			[[ -d "$HAOS_BASE" ]] || mkdir -p "$HAOS_BASE" || { echo "Couldn't create storage directory: $HAOS_BASE"; exit 1; }
 
 			# this hack will allow running it on minimal image, but this has to be done properly in the network section, to allow easy switching
-			systemctl disable systemd-networkd
-
-			# hack to force install
-			sed -i 's/^PRETTY_NAME=".*/PRETTY_NAME="Debian GNU\/Linux 12 (bookworm)"/g' "${SDCARD}/etc/os-release"
+			srv_disable systemd-networkd
 
 			# we host packages at our repository and version for both is determined:
 			# https://github.com/armbian/os/blob/main/external/haos-agent.conf
@@ -48,7 +45,7 @@ function module_haos() {
 			# determine machine type
 			case "${ARCH}" in
 				armhf) MACHINE="tinker";;
-				amd64) MACHINE="generic-x86-64";;
+				x86_64) MACHINE="generic-x86-64";;
 				arm64) MACHINE="odroid-n2";;
 				*) exit 1;;
 			esac
@@ -62,7 +59,7 @@ function module_haos() {
 			while true; do
 			if ha supervisor info 2>&1 | grep -q "healthy: false"; then
 				echo "Unhealthy detected, restarting" | systemd-cat -t $(basename "$0") -p debug
-				systemctl restart hassio-supervisor.service
+				systemctl restart hassio-supervisor
 				sleep 600
 			else
 				sleep 5
@@ -87,33 +84,54 @@ function module_haos() {
 			WantedBy=multi-user.target
 			SUPERVISOR_FIX_SERVICE
 
-			if [[ -f /boot/armbianEnv.txt ]]; then
-				echo "extraargs=systemd.unified_cgroup_hierarchy=0 apparmor=1 security=apparmor" >> "/boot/armbianEnv.txt"
+			if [[ -f /boot/firmware/cmdline.txt ]]; then
+				# Raspberry Pi
+				sed -i '/./ s/$/ apparmor=1 security=apparmor/' /boot/firmware/cmdline.txt
+			elif [[ -f /boot/armbianEnv.txt ]]; then
+				echo "extraargs=apparmor=1 security=apparmor" >> "/boot/armbianEnv.txt"
 			fi
 			sleep 5
-			for s in {1..50};do
-				for i in {0..100..10}; do
-					j=$i
-					echo "$i"
-					sleep 2
+
+			if [[ -t 1 ]]; then
+				# We have a terminal, use dialog
+				for s in {1..30}; do
+					for i in {0..100..10}; do
+						echo "$i"
+						sleep 1
+					done
+					if curl -sf http://localhost:${module_options["module_haos,port"]}/ > /dev/null; then
+						break
+					fi
+				done | $DIALOG --gauge "Preparing Home Assistant Supervised\n\nPlease wait! (can take a few minutes) " 10 50 0
+			else
+				# No terminal, fallback to echoing progress
+				echo "Waiting for Home Assistant Supervised to become available..."
+				for s in {1..30}; do
+					sleep 10
+					if curl -sf http://localhost:${module_options["module_haos,port"]}/ > /dev/null; then
+						echo "✅ Home Assistant Supervised is responding."
+						break
+					fi
 				done
-				if [[ -n "$(ss | grep ${module_options["module_haos,port"]})" ]]; then
-						break;
-				fi
-			done | $DIALOG --gauge "Preparing Home Assistant Supervised\n\nPlease wait! (can take 15 minutes) " 10 50 0
+			fi
 
 			# enable service
-			systemctl enable supervisor-fix >/dev/null 2>&1
-			systemctl start supervisor-fix >/dev/null 2>&1
+			srv_enable supervisor-fix
+			srv_start supervisor-fix
 
-			# restore os-release
-			sed -i "s/^PRETTY_NAME=\".*/PRETTY_NAME=\"${VENDOR} ${REVISION} ($VERSION_CODENAME)\"/g" "/etc/os-release"
+			# reboot related to apparmor install
+			if [[ -t 1 ]]; then
+				if $DIALOG --title " Reboot required " --yes-button "Reboot" --no-button "Cancel" --yesno \
+					"A reboot is required to enable AppArmor. Shall we reboot now?" 7 68; then
+					reboot
+				fi
+			fi
 
 		;;
 		"${commands[1]}")
 			# disable service
-			systemctl disable supervisor-fix >/dev/null 2>&1
-			systemctl stop supervisor-fix >/dev/null 2>&1
+			srv_disable supervisor-fix
+			srv_stop supervisor-fix
 			pkg_remove homeassistant-supervised os-agent
 			echo -e "Removing Home Assistant containers.\n\nPlease wait few minutes! "
 			if [[ "${container}" ]]; then
@@ -125,14 +143,16 @@ function module_haos() {
 			fi
 			rm -f /usr/local/bin/supervisor_fix.sh
 			rm -f /etc/systemd/system/supervisor-fix.service
-			sed -i "s/ systemd.unified_cgroup_hierarchy=0 apparmor=1 security=apparmor//" /boot/armbianEnv.txt
-			systemctl daemon-reload >/dev/null 2>&1
-			# restore os-release
-			sed -i "s/^PRETTY_NAME=\".*/PRETTY_NAME=\"${VENDOR} ${REVISION} ($VERSION_CODENAME)\"/g" "/etc/os-release"
+			sed -i "s/ apparmor=1 security=apparmor//" /boot/armbianEnv.txt
+			# Raspberry Pi
+			sed -i "s/ apparmor=1 security=apparmor//" /boot/firmware/cmdline.txt
+			srv_daemon_reload
 		;;
 		"${commands[2]}")
 			${module_options["module_haos,feature"]} ${commands[1]}
-			[[ -n "${HAOS_BASE}" && "${HAOS_BASE}" != "/" ]] && rm -rf "${HAOS_BASE}"
+			if [[ -n "${HAOS_BASE}" && "${HAOS_BASE}" != "/" ]]; then
+				rm -rf "${HAOS_BASE}"
+			fi
 		;;
 		"${commands[3]}")
 			if [[ "${container}" && "${image}" ]]; then

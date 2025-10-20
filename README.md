@@ -1,85 +1,92 @@
-<p align="center">
-  <a href="#build-framework">
-  <img src="https://raw.githubusercontent.com/armbian/configng/main/share/icons/hicolor/scalable/configng-tux.svg" width="128" alt="Armbian Config NG Logo" />
-  </a><br>
-  <strong>Armbian Config: The Next Generation</strong><br>
-<br>
-<a href=https://github.com/armbian/configng/actions/workflows/debian.yml><img alt="GitHub Workflow Status" src="https://img.shields.io/github/actions/workflow/status/armbian/configng/debian.yml?logo=githubactions&label=Packaging&style=for-the-badge&branch=main"></a> <a href=https://github.com/armbian/configng/actions/workflows/unit-tests.yml><img alt="GitHub Workflow Status" src="https://img.shields.io/github/actions/workflow/status/armbian/configng/unit-tests.yml?logo=githubactions&label=Unit%20tests&style=for-the-badge&branch=main"></a> <a href=https://github.com/armbian/configng/actions/workflows/docs.yml><img alt="GitHub Workflow Status" src="https://img.shields.io/github/actions/workflow/status/armbian/configng/docs.yml?logo=githubactions&label=Documentation&style=for-the-badge&branch=main"></a>
-</p>
+<h2 align="center">
+  <a href=#><img src="https://raw.githubusercontent.com/armbian/.github/master/profile/logosmall.png" alt="Armbian logo"></a>
+  <br><br>
+</h2>
 
-**armbian-config** provides configuration and installation routines for customizing and automating tasks within Armbian Linux environment. These utilties help streamline setup processes for various use cases.
+### Purpose of This Repository
+
+This repository contains the source code for **Armbian Config**, a versatile and extremly **lightweight configuration utility** designed to simplify and automate common system tasks within the Armbian Linux environment.
+
+Armbian Config provides interactive and scriptable routines for:
+
+- Initial system setup and personalization  
+- Networking configuration, including Wi-Fi, VPN, and static IP  
+- Sandboxed software installation and system updates  
+- Kernel selection, switching, and firmware management  
+- Enabling and managing hardware-specific features  
+
+It is especially useful for single board computers (SBCs), helping users quickly prepare a ready-to-use system without manual intervention.
+
+### Quick Start
+
+Armbian Config comes **preinstalled** with Armbian images.
+
+To launch the utility:
+
+1. Open a terminal (locally or via SSH)
+2. Run the following command:
+
+```bash
+armbian-config
+```
 
 <a href=#><img src=.github/images/common.png></a>
 
-## Key Advantages
-- **Lightweight**: Minimal dependencies for optimal performance.
-- **Flexible**: Supports JSON, TUI, CLI, and API interfaces.
-- **Modern**: A fresh approach to configuration.
-- **Low entropy**: Byte clean uninstall for most targets
+### Compatibility
 
-## Features
-
-- **System Configuration**: 
-  - kernel manamenent, headers, hardware tweaks.
-  - NFS and ZFS storage management.
-  - SSH user access tweaks.
-  - system updates, rolling / stable, containers update.
-- **Network Management**: 
-  - fixed / dynamic IP configuration.
-  - connecting to wireless network.
-  - access point management.
-- **Localization Settings**: 
-  - Configure time zone.
-  - Set language and locales.
-  - Change hostname.
-- **Software Management**:
-  - Software installation and removal.
-  - Native and containerized environment.
-  - Standardised, updatable, maintained.
-
-## Compatibility
-
-This tool is tailored to works best with [**Armbian Linux**](https://www.armbian.com) but it has also been automatically tested on:
-- Debian Bookworm
-- Ubuntu Jammy
-- Ubuntu Noble
-
-In theory it should work on all systemd APT based Linux distributions: Linux Mint, Elementary OS, Kali Linux, MX Linux, Parrot OS, Proxmox, Raspberry Pi OS, ...
-
-## Getting Started
-
-Armbian config is preinstalled on Armbian. Open or login into your terminal and run:
-
+This tool is optimized for use with [**Armbian Linux**](https://www.armbian.com), but in theory, it should also work on any systemd-based, APT-compatible Linux distribution — including Linux Mint, Elementary OS, Kali Linux, MX Linux, Parrot OS, Proxmox, Raspberry Pi OS, and others.
+<details><summary>Add Armbian key + repository and install the tool:</summary>
+  
 ```bash
-armbian-config
-```
-
-#### Compatible distributions
-
-Add Armbian repository and install the tool:
-
-```bash
-echo "deb [signed-by=/usr/share/keyrings/armbian.gpg] \
-https://github.armbian.com/configng stable main" | \
-sudo tee /etc/apt/sources.list.d/armbian-development.list > /dev/null
+wget -qO - https://apt.armbian.com/armbian.key | gpg --dearmor | \
+sudo tee /usr/share/keyrings/armbian.gpg > /dev/null
+cat << EOF | sudo tee /etc/apt/sources.list.d/armbian-config.sources > /dev/null
+Types: deb
+URIs: https://github.armbian.com/configng
+Suites: stable
+Components: main
+Signed-By: /usr/share/keyrings/armbian.gpg
+EOF
 sudo apt update
 sudo apt -y install armbian-config
-```
-
-```bash
 armbian-config
 ```
+</details>
 
-## Contributing
+### Contribute
 
-Please refer to general [CONTRIBUTING.md](CONTRIBUTING.md) and specific guidelines for [adding a new feature](https://docs.armbian.com/Contribute/Armbian-config/).
+Want to expand **Armbian Config** with new features or tools? Whether you're adding a new software title, enhancing an existing configuration module, or introducing entirely new functionality, we welcome your ideas and code.
 
-## Donations
+<https://docs.armbian.com/Contribute/Armbian-config>
 
-Sustainability of Armbian development relies on [donations](https://www.armbian.com/donate/) and [sponsorships](https://github.com/sponsors/armbian).
+> 📌 Tip: Keep your changes modular and easy to maintain — this helps us review and merge your contribution faster.
 
-## License
+### Support
 
-(c) [Contributors](https://github.com/armbian/configng/graphs/contributors)
+Armbian offers multiple support channels, depending on your needs:
 
-All code is licensed under the GPL, v3 or later. See [LICENSE](LICENSE) file for details.
+- **Community Forums**  
+  Get help from fellow users and contributors on a wide range of topics — from troubleshooting to development.  
+  👉 [forum.armbian.com](https://forum.armbian.com)
+
+- **Discord / IRC / Matrix Chat**  
+  Join real-time discussions with developers and community members for faster feedback and collaboration.  
+  👉 [Community Chat](https://docs.armbian.com/Community_IRC/)
+
+- **Paid Consultation**  
+  For advanced needs, commercial projects, or guaranteed response times, paid support is available directly from Armbian maintainers.  
+  👉 [Contact us](https://www.armbian.com/contact) to discuss consulting options.
+
+### Contributors
+
+Thanks to all who have contributed to Armbian Config!
+
+<a href="https://github.com/armbian/configng/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=armbian/configng" />
+</a>
+<br>
+<br>
+
+### Armbian Partners
+
+Armbian's [partnership program](https://forum.armbian.com/subscriptions) helps to support Armbian and the Armbian community! Please take a moment to familiarize yourself with [our Partners](https://armbian.com/partners).

@@ -2,7 +2,7 @@ module_options+=(
 	["module_armbian_runners,author"]="@igorpecovnik"
 	["module_armbian_runners,feature"]="module_armbian_runners"
 	["module_armbian_runners,desc"]="Manage self hosted runners"
-	["module_armbian_runners,example"]="install remove remove_online purge help"
+	["module_armbian_runners,example"]="install remove remove_online purge status help"
 	["module_armbian_runners,port"]=""
 	["module_armbian_runners,status"]="Active"
 	["module_armbian_runners,arch"]=""
@@ -18,39 +18,53 @@ function module_armbian_runners () {
 
 	# read parameters from command install
 	local parameter
-	IFS=' ' read -r -a parameter <<< "${1}"
-	for feature in gh_token runner_name start stop label_primary label_secondary organisation owner repository; do
-	for selected in ${parameter[@]}; do
-		IFS='=' read -r -a split <<< "${selected}"
-		[[ ${split[0]} == $feature ]] && eval "$feature=${split[1]}"
+	for var in "$@"; do
+		IFS=' ' read -r -a parameter <<< "${var}"
+		for feature in gh_token runner_name start stop label_primary label_secondary organisation owner repository; do
+			for selected in ${parameter[@]}; do
+				IFS='=' read -r -a split <<< "${selected}"
+				[[ ${split[0]} == $feature ]] && eval "$feature=${split[1]}"
+			done
 		done
 	done
-
-	# default values if not defined
-	local gh_token="${gh_token}"
-	local runner_name="${runner_name:-armbian}"
-	local start="${start:-01}"
-	local stop="${stop:-01}"
-	local label_primary="${label_primary:-alfa}"
-	local label_secondary="${label_secondary:-fast,images}"
-	local organisation="${organisation:-armbian}"
-	local owner="${owner}"
-	local repository="${repository}"
-
-	# we can generate per org or per repo
-	local registration_url="${organisation}"
-	local prefix="orgs"
-	if [[ -n "${owner}" && -n "${repository}" ]]; then
-		registration_url="${owner}/${repository}"
-		prefix=repos
-	fi
 
 	local commands
 	IFS=' ' read -r -a commands <<< "${module_options["module_armbian_runners,example"]}"
 
-	case "${parameter[0]}" in
+	case "$1" in
 
 		"${commands[0]}")
+
+			# Prompt using dialog if parameters are missing AND in interactive mode
+			if [[ -t 1 ]]; then
+				if [[ -z "$gh_token" ]]; then
+					gh_token=$($DIALOG --inputbox "Enter your GitHub token:" 8 60 3>&1 1>&2 2>&3)
+				fi
+
+				if [[ -z "$runner_name" ]]; then
+					runner_name=$($DIALOG --inputbox "Enter runner name:" 8 60 "armbian" 3>&1 1>&2 2>&3)
+				fi
+
+				if [[ -z "$start" ]]; then
+					start=$($DIALOG --inputbox "Enter start index:" 8 60 "01" 3>&1 1>&2 2>&3)
+				fi
+
+				if [[ -z "$stop" ]]; then
+					stop=$($DIALOG --inputbox "Enter stop index:" 8 60 "01" 3>&1 1>&2 2>&3)
+				fi
+
+				if [[ -z "$label_primary" ]]; then
+					label_primary=$($DIALOG --inputbox "Enter primary label(s):" 8 60 "alfa" 3>&1 1>&2 2>&3)
+				fi
+
+				if [[ -z "$label_secondary" ]]; then
+					label_secondary=$($DIALOG --inputbox "Enter secondary label(s):" 8 60 "fast,images" 3>&1 1>&2 2>&3)
+				fi
+
+				if [[ -z "$organisation" ]]; then
+					organisation=$($DIALOG --inputbox "Enter GitHub organisation:" 8 60 "armbian" 3>&1 1>&2 2>&3)
+				fi
+			fi
 
 			if [[ -z $gh_token ]]; then
 				echo "Error: Github token is mandatory"
@@ -58,10 +72,33 @@ function module_armbian_runners () {
 				exit 1
 			fi
 
+			# default values if not defined
+			local gh_token="${gh_token}"
+			local runner_name="${runner_name:-armbian}"
+			local start="${start:-01}"
+			local stop="${stop:-01}"
+			local label_primary="${label_primary:-alfa}"
+			local label_secondary="${label_secondary:-fast,images}"
+			local organisation="${organisation:-armbian}"
+			local owner="${owner}"
+			local repository="${repository}"
+
+			# workaround. Remove when parameters handling is fixed
+			local label_primary=$(echo $label_primary | sed "s/_/,/g") # convert
+			local label_secondary=$(echo $label_secondary | sed "s/_/,/g") # convert
+
+			# we can generate per org or per repo
+			local registration_url="${organisation}"
+			local prefix="orgs"
+			if [[ -n "${owner}" && -n "${repository}" ]]; then
+				registration_url="${owner}/${repository}"
+				prefix=repos
+			fi
+
 			# Docker preinstall is needed for our build framework
 			pkg_installed docker-ce || module_docker install
 			pkg_update
-			pkg_install jq curl libicu-dev
+			pkg_install jq curl libicu-dev mktorrent rsync
 
 			# download latest runner package
 			local temp_dir=$(mktemp -d)
@@ -82,7 +119,7 @@ function module_armbian_runners () {
 				-H "X-GitHub-Api-Version: 2022-11-28" \
 				https://api.github.com/${prefix}/${registration_url}/actions/runners/registration-token | jq -r .token)
 
-				${module_options["module_armbian_runners,feature"]} ${commands[1]} ${runner_name}
+				${module_options["module_armbian_runners,feature"]} ${commands[1]} ${runner_name} "${i}"
 
 				adduser --quiet --disabled-password --shell /bin/bash \
 				--home /home/actions-runner-${i} --gecos "actions-runner-${i}" actions-runner-${i}
@@ -114,19 +151,17 @@ function module_armbian_runners () {
 		;;
 		"${commands[1]}")
 			# delete if previous already exists
-			if id "actions-runner-${i}" >/dev/null 2>&1; then
-				echo "Removing runner ${i} on GitHub"
-				${module_options["module_armbian_runners,feature"]} ${commands[2]} "$2-${i}"
-				echo "Removing runner ${i} locally"
-				runner_home=$(getent passwd "actions-runner-${i}" | cut -d: -f6)
-				if [[ -f "${runner_home}/svc.sh" ]]; then
-					sh -c "cd ${runner_home} ; sudo ./svc.sh stop actions-runner-${i} >/dev/null; sudo ./svc.sh uninstall actions-runner-${i} >/dev/null"
-				fi
-				userdel -r -f actions-runner-${i} 2>/dev/null
-				groupdel actions-runner-${i} 2>/dev/null
-				sed -i "/^actions-runner-${i}.*/d" /etc/sudoers
-				rm -rf "${runner_home}"
+			echo "Removing runner $3 on GitHub"
+			${module_options["module_armbian_runners,feature"]} ${commands[2]} "$2-$3"
+			echo "Removing runner $3 locally"
+			runner_home=$(getent passwd "actions-runner-${3}" | cut -d: -f6)
+			if [[ -f "${runner_home}/svc.sh" ]]; then
+				sh -c "cd ${runner_home} ; sudo ./svc.sh stop actions-runner-$3 >/dev/null; sudo ./svc.sh uninstall actions-runner-$3 >/dev/null"
 			fi
+			userdel -r -f actions-runner-$3 2>/dev/null
+			groupdel actions-runner-$3 2>/dev/null
+			sed -i "/^actions-runner-$3.*/d" /etc/sudoers
+			[[ ${runner_home} != "/" ]] && rm -rf "${runner_home}"
 		;;
 		"${commands[2]}")
 			DELETE=$2
@@ -168,12 +203,20 @@ function module_armbian_runners () {
 				${module_options["module_armbian_runners,feature"]} ${commands[1]} ${runner_name}
 			done
 		;;
+		"${commands[4]}")
+			if [[ $(systemctl list-units --type=service 2>/dev/null | grep actions.runner) -gt 0 ]]; then
+				return 0
+			else
+				return 1
+			fi
+		;;
 		"${commands[6]}")
 			echo -e "\nUsage: ${module_options["module_armbian_runners,feature"]} <command> [switches]"
 			echo -e "Commands:  install purge"
 			echo -e "Available commands:\n"
 			echo -e "\tinstall\t\t- Install or reinstall $title."
 			echo -e "\tpurge\t\t- Purge $title."
+			echo -e "\tstatus\t\t- Status of $title."
 			echo -e "\nAvailable switches:\n"
 			echo -e "\tgh_token\t- token with rights to admin runners."
 			echo -e "\trunner_name\t- name of the runner (series)."

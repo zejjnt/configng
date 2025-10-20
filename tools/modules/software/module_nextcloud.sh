@@ -7,7 +7,7 @@ module_options+=(
 	["module_nextcloud,status"]="Active"
 	["module_nextcloud,doc_link"]="https://nextcloud.com/support/"
 	["module_nextcloud,group"]="Downloaders"
-	["module_nextcloud,port"]="443"
+	["module_nextcloud,port"]="1443"
 	["module_nextcloud,arch"]="x86-64 arm64"
 )
 #
@@ -37,7 +37,7 @@ function module_nextcloud () {
 			-e PUID=1000 \
 			-e PGID=1000 \
 			-e TZ="$(cat /etc/timezone)" \
-			-p 443:443 \
+			-p ${module_options["module_nextcloud,port"]}:443 \
 			-v "${NEXTCLOUD_BASE}/config:/config" \
 			-v "${NEXTCLOUD_BASE}/data:/data" \
 			--restart unless-stopped \
@@ -55,12 +55,18 @@ function module_nextcloud () {
 			done
 		;;
 		"${commands[1]}")
-			[[ "${container}" ]] && docker container rm -f "$container" >/dev/null
-			[[ "${image}" ]] && docker image rm "$image" >/dev/null
+			if [[ "${container}" ]]; then
+				docker container rm -f "$container" >/dev/null
+			fi
+			if [[ "${image}" ]]; then
+				docker image rm "$image" >/dev/null
+			fi
 		;;
 		"${commands[2]}")
 			${module_options["module_nextcloud,feature"]} ${commands[1]}
-			[[ -n "${NEXTCLOUD_BASE}" && "${NEXTCLOUD_BASE}" != "/" ]] && rm -rf "${NEXTCLOUD_BASE}"
+			if [[ -n "${NEXTCLOUD_BASE}" && "${NEXTCLOUD_BASE}" != "/" ]]; then
+				rm -rf "${NEXTCLOUD_BASE}"
+			fi
 		;;
 		"${commands[3]}")
 			if [[ "${container}" && "${image}" ]]; then

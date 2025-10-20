@@ -7,7 +7,7 @@ module_options+=(
 	["module_embyserver,status"]="Active"
 	["module_embyserver,doc_link"]="https://emby.media"
 	["module_embyserver,group"]="Media"
-	["module_embyserver,port"]="8096"
+	["module_embyserver,port"]="8091"
 	["module_embyserver,arch"]="x86-64 arm64"
 )
 #
@@ -37,7 +37,7 @@ function module_embyserver () {
 			-e PUID=1000 \
 			-e PGID=1000 \
 			-e TZ="$(cat /etc/timezone)" \
-			-p 8096:8096 \
+			-p ${module_options["module_embyserver,port"]}:8096 \
 			-v "${EMBY_BASE}/emby/library:/config" \
 			-v "${EMBY_BASE}/movies:/movies" \
 			-v "${EMBY_BASE}/tvshows:/tvshows" \
@@ -56,12 +56,18 @@ function module_embyserver () {
 			done
 		;;
 		"${commands[1]}")
-			[[ "${container}" ]] && docker container rm -f "$container" >/dev/null
-			[[ "${image}" ]] && docker image rm "$image" >/dev/null
+			if [[ "${container}" ]]; then
+				docker container rm -f "$container" >/dev/null
+			fi
+			if [[ "${image}" ]]; then
+				docker image rm "$image" >/dev/null
+			fi
 		;;
 		"${commands[2]}")
 			${module_options["module_embyserver,feature"]} ${commands[1]}
-			[[ -n "${EMBY_BASE}" && "${EMBY_BASE}" != "/" ]] && rm -rf "${EMBY_BASE}"
+			if [[ -n "${EMBY_BASE}" && "${EMBY_BASE}" != "/" ]]; then
+				rm -rf "${EMBY_BASE}"
+			fi
 		;;
 		"${commands[3]}")
 			if [[ "${container}" && "${image}" ]]; then

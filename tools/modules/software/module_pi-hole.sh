@@ -7,8 +7,8 @@ module_options+=(
 	["module_pi_hole,status"]="Active"
 	["module_pi_hole,doc_link"]="https://docs.pi-hole.net/"
 	["module_pi_hole,group"]="DNS"
-	["module_pi_hole,port"]="80 53"
-	["module_pi_hole,arch"]="x86-64 arm64"
+	["module_pi_hole,port"]="8811"
+	["module_pi_hole,arch"]=""
 )
 #
 # Module Pi-Hole
@@ -29,31 +29,19 @@ function module_pi_hole () {
 	case "$1" in
 		"${commands[0]}")
 			pkg_installed docker-ce || module_docker install
+			if ! docker container ls -a --format '{{.Names}}' | grep -q '^unbound$'; then module_unbound install; fi
+			local unbound_ip=$(docker inspect --format '{{ .NetworkSettings.Networks.lsio.IPAddress }}' unbound)
 			[[ -d "$PIHOLE_BASE" ]] || mkdir -p "$PIHOLE_BASE" || { echo "Couldn't create storage directory: $PIHOLE_BASE"; exit 1; }
-			# disable dns within systemd-resolved
-			if systemctl is-active --quiet systemd-resolved.service; then
-				# Debian doesn't enable this file by default
-				[[ ! -f /etc/systemd/resolved.conf ]] && ln -s /etc/systemd/resolved.conf.real /etc/systemd/resolved.conf
-				if ! grep -q "^DNSStubListener=no" /etc/systemd/resolved.conf 2> /dev/null; then
-					sed -i "s/^#\?DNSStubListener=.*/DNSStubListener=no/" /etc/systemd/resolved.conf
-					systemctl restart systemd-resolved.service
-					sleep 3
-				fi
-			fi
-			# disable dns within Network manager
-			if systemctl is-active --quiet NetworkManager && [[ -f /etc/NetworkManager/NetworkManager.conf ]]; then
-				if grep -q "dns=true" /etc/NetworkManager/NetworkManager.conf; then
-					sed -i "s/dns=.*/dns=false/g" /etc/NetworkManager/NetworkManager.conf
-					systemctl restart NetworkManager
-					sleep 3
-				fi
-			fi
+			[[ ! -f "/etc/systemd/resolved.conf.d/armbian-defaults.conf" ]] && ${module_options["module_pi_hole,feature"]} ${commands[1]}
 			docker run -d \
 			--name pihole \
 			--net=lsio \
-			-p 53:53/tcp -p 53:53/udp \
-			-p 80:80 \
+			-p 53:53/tcp \
+			-p 53:53/udp \
+			-p ${module_options["module_pi_hole,port"]}:80 \
 			-e TZ="$(cat /etc/timezone)" \
+			-e PIHOLE_UID=1000 \
+			-e PIHOLE_GID=1000 \
 			-v "${PIHOLE_BASE}/etc-pihole:/etc/pihole" \
 			-v "${PIHOLE_BASE}/etc-dnsmasq.d:/etc/dnsmasq.d" \
 			--dns=9.9.9.9 \
@@ -62,6 +50,7 @@ function module_pi_hole () {
 			-e VIRTUAL_HOST="pi.hole" \
 			-e PROXY_LOCATION="pi.hole" \
 			-e FTLCONF_LOCAL_IPV4="${LOCALIPADD}" \
+			-e FTLCONF_dns_upstreams="${unbound_ip}" \
 			pihole/pihole:latest
 			for i in $(seq 1 20); do
 				if docker inspect -f '{{ index .Config.Labels "build_version" }}' pihole >/dev/null 2>&1 ; then
@@ -74,10 +63,32 @@ function module_pi_hole () {
 					exit 1
 				fi
 			done
+			local container_ip=$(docker inspect --format '{{ .NetworkSettings.Networks.lsio.IPAddress }}' pihole)
+			if srv_active systemd-resolved; then
+				mkdir -p /etc/systemd/resolved.conf.d/
+				cat > "/etc/systemd/resolved.conf.d/armbian-defaults.conf" <<- EOT
+				[Resolve]
+				DNS=127.0.0.1 ${container_ip}
+				DNSStubListener=no
+				EOT
+				srv_restart systemd-resolved
+				sleep 2
+			fi
+			${module_options["module_pi_hole,feature"]} ${commands[3]}
 		;;
 		"${commands[1]}")
 			[[ "${container}" ]] && docker container rm -f "$container" >/dev/null
 			[[ "${image}" ]] && docker image rm "$image" >/dev/null
+			# restore DNS settings
+			if srv_active systemd-resolved; then
+				mkdir -p /etc/systemd/resolved.conf.d/
+				cat > "/etc/systemd/resolved.conf.d/armbian-defaults.conf" <<- EOT
+				[Resolve]
+				DNSStubListener=no
+				EOT
+				srv_restart systemd-resolved
+				sleep 2
+			fi
 		;;
 		"${commands[2]}")
 			${module_options["module_pi_hole,feature"]} ${commands[1]}
@@ -86,7 +97,7 @@ function module_pi_hole () {
 		"${commands[3]}")
 			SELECTED_PASSWORD=$($DIALOG --title "Enter new password for Pi-hole admin" --passwordbox "" 7 50 3>&1 1>&2 2>&3)
 			if [[ -n $SELECTED_PASSWORD ]]; then
-				docker exec -it "${container}" sh -c "sudo pihole -a -p ${SELECTED_PASSWORD}" >/dev/null
+				docker exec -it "${container}" sh -c "pihole setpassword ${SELECTED_PASSWORD}"
 			fi
 		;;
 		"${commands[4]}")

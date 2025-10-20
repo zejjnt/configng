@@ -7,7 +7,7 @@ module_options+=(
 	["module_mariadb,status"]="Active"
 	["module_mariadb,doc_link"]="https://mariadb.org/documentation/"
 	["module_mariadb,group"]="Database"
-	["module_mariadb,port"]="3306"
+	["module_mariadb,port"]="3307"
 	["module_mariadb,arch"]="x86-64 arm64"
 )
 #
@@ -47,7 +47,7 @@ function module_mariadb () {
 			-e "MYSQL_DATABASE=${MYSQL_DATABASE}" \
 			-e "MYSQL_USER=${MYSQL_USER}" \
 			-e "MYSQL_PASSWORD=${MYSQL_PASSWORD}" \
-			-p 3306:3306 \
+			-p ${module_options["module_mariadb,port"]}:3306 \
 			-v "${MARIADB_BASE}/config:/config" \
 			--restart unless-stopped \
 			lscr.io/linuxserver/mariadb:latest
@@ -64,12 +64,18 @@ function module_mariadb () {
 			done
 		;;
 		"${commands[1]}")
-			[[ "${container}" ]] && docker container rm -f "$container" >/dev/null
-			[[ "${image}" ]] && docker image rm "$image" >/dev/null
+			if [[ "${container}" ]]; then
+				docker container rm -f "$container" >/dev/null
+			fi
+			if [[ "${image}" ]]; then
+				docker image rm "$image" >/dev/null
+			fi
 		;;
 		"${commands[2]}")
 			${module_options["module_mariadb,feature"]} ${commands[1]}
-			[[ -n "${MARIADB_BASE}" && "${MARIADB_BASE}" != "/" ]] && rm -rf "${MARIADB_BASE}"
+			if [[ -n "${MARIADB_BASE}" && "${MARIADB_BASE}" != "/" ]]; then
+				rm -rf "${MARIADB_BASE}"
+			fi
 		;;
 		"${commands[3]}")
 			if [[ "${container}" && "${image}" ]]; then

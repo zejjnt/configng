@@ -5,7 +5,7 @@ module_options+=(
 	["module_docker,example"]="install remove purge status help"
 	["module_docker,desc"]="Install docker from a repo using apt"
 	["module_docker,status"]="Active"
-	["module_docker,doc_link"]="https://wiki.bazarr.media/"
+	["module_docker,doc_link"]="https://docs.docker.com"
 	["module_docker,group"]="Containers"
 	["module_docker,port"]=""
 	["module_docker,arch"]="x86-64 arm64 armhf"
@@ -44,10 +44,11 @@ function module_docker() {
 					fi
 
 					groupadd docker 2>/dev/null || true
-					[[ -n "${SUDO_USER}" ]] && usermod -aG docker "${SUDO_USER}"
-					systemctl enable docker.service > /dev/null 2>&1
-					systemctl enable containerd.service > /dev/null 2>&1
-					systemctl start docker.service > /dev/null 2>&1
+					if [[ -n "${SUDO_USER}" ]]; then
+						usermod -aG docker "${SUDO_USER}"
+					fi
+					srv_enable docker containerd
+					srv_start docker
 					docker network create lsio 2> /dev/null
 				fi
 			else

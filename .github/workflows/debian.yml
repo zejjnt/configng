@@ -22,12 +22,12 @@ jobs:
       section: "default"
       priority: "optional"
       compile: "tools/config-assemble.sh -p"
-      depends: "bash, jq, whiptail, sudo, procps, systemd, lsb-release, iproute2, debconf, libtext-iconv-perl"
+      depends: "bash, jq, whiptail, sudo, procps, systemd, lsb-release, iproute2, debconf, libtext-iconv-perl, gpg"
       description: "Armbian config: The Next Generation"
 
     secrets:
-      GPG_PRIVATE_KEY: ${{ secrets.GPG_KEY1 }}
-      PASSPHRASE: ${{ secrets.GPG_PASSPHRASE1 }}
+      PRIMARY_KEY: ${{ secrets.GPG_KEY4 }}
+      TERTIARY_KEY: ${{ secrets.GPG_KEY3 }}
 
   Tests:
     name: "Execute unit tests"
@@ -37,6 +37,6 @@ jobs:
     steps:
 
       - name: "Run unit tests action"
-        uses: peter-evans/repository-dispatch@v3
+        uses: peter-evans/repository-dispatch@v4
         with:
           event-type: "Unit tests"
