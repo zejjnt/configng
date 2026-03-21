@@ -13,9 +13,16 @@ function set_runtime_variables() {
 
 	missing_dependencies=()
 
-	# Check if whiptail is available and set DIALOG
+	# Check if dialog tools are available and set DIALOG
 	if [[ -z "$DIALOG" ]]; then
-		missing_dependencies+=("whiptail")
+		if [[ -x "$(command -v dialog)" ]]; then
+			DIALOG="dialog"
+		elif [[ -x "$(command -v whiptail)" ]]; then
+			DIALOG="whiptail"
+		else
+			# No dialog tool available, use text-based interface
+			DIALOG="read"
+		fi
 	fi
 
 	# Check if jq is available
@@ -27,6 +34,15 @@ function set_runtime_variables() {
 	if [[ ${#missing_dependencies[@]} -ne 0 ]]; then
 		if is_package_manager_running; then
 			pkg_install ${missing_dependencies[*]}
+		fi
+	fi
+
+	# Re-check DIALOG after installing dependencies
+	if [[ "$DIALOG" == "read" ]]; then
+		if [[ -x "$(command -v dialog)" ]]; then
+			DIALOG="dialog"
+		elif [[ -x "$(command -v whiptail)" ]]; then
+			DIALOG="whiptail"
 		fi
 	fi
 
@@ -73,8 +89,8 @@ function set_runtime_variables() {
 		TRANSMISSION_WHITELIST+=",${docker_subnet}.*.*"
 	fi
 
-	BACKTITLE="Contribute: https://github.com/armbian/configng"
-	TITLE="Armbian configuration utility"
+	BACKTITLE="\Zb\Z7Donate:\Zn https://github.com/sponsors/armbian | \Zb\Z7Connect:\Zn https://forum.armbian.com | \Zb\Z7Explore:\Zn https://docs.armbian.com"
+	TITLE="armbian-config"
 	[[ -z "${DEFAULT_ADAPTER// /}" ]] && DEFAULT_ADAPTER="lo"
 	# zfs subsystem - determine if our kernel is not too recent
 	ZFS_DKMS_VERSION=$(LC_ALL=C apt-cache policy zfs-dkms | grep Candidate | xargs | cut -d" " -f2 | cut -c-5)

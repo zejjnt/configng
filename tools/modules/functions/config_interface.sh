@@ -21,8 +21,11 @@ function set_colors() {
 		#echo "color code: $color_code" | show_infobox ;
 	elif [ "$DIALOG" = "dialog" ]; then
 		set_term_colors "$color_code"
+	elif [ "$DIALOG" = "read" ]; then
+		# Text-based interface doesn't support colors, just return success
+		return 0
 	else
-		echo "Invalid dialog type"
+		echo "Invalid dialog type: $DIALOG"
 		return 1
 	fi
 }
@@ -81,8 +84,8 @@ module_options+=(
 	["parse_menu_items,author"]="@viraniac"
 	["parse_menu_items,ref_link"]=""
 	["parse_menu_items,feature"]="parse_menu_items"
-	["parse_menu_items,desc"]="Parse json to get list of desired menu or submenu items"
-	["parse_menu_items,example"]="parse_menu_items 'menu_options_array'"
+	["parse_menu_items,desc"]="Parse json to get list of desired menu or submenu items. Can return pairs or triplets depending on --with-help flag."
+	["parse_menu_items,example"]="parse_menu_items 'menu_options_array'\nparse_menu_items 'menu_options_array' --with-help"
 	["parse_menu_items,doc_link"]=""
 	["parse_menu_items,status"]="Active"
 )
@@ -91,10 +94,16 @@ module_options+=(
 #
 parse_menu_items() {
 	local -n options=$1
+	local with_help=false
+
+	# Check if --with-help flag is passed
+	[[ "$2" == "--with-help" ]] && with_help=true
+
 	while IFS= read -r id; do
 		IFS= read -r description
 		IFS= read -r condition
 		IFS= read -r container_type
+		IFS= read -r help_text
 		# Append [C] for container-based software
 		if [[ "$container_type" != "null" && -n "$container_type" ]]; then
 			description="$description [C]"
@@ -103,13 +112,25 @@ parse_menu_items() {
 		if [[ -n $condition && $condition != "null" ]]; then
 			# If the function returns a truthy value, add the menu item to the menu
 			if eval $condition; then
-				options+=("$id" "  -  $description")
+				if $with_help; then
+					# Return triplets: id, description, help
+					options+=("$id" "  -  $description" "$help_text")
+				else
+					# Return pairs: id, description
+					options+=("$id" "  -  $description")
+				fi
 			fi
 		else
 			# If the condition field is empty or null, add the menu item to the menu
-			options+=("$id" "  -  $description ")
+			if $with_help; then
+				# Return triplets: id, description, help
+				options+=("$id" "  -  $description " "$help_text")
+			else
+				# Return pairs: id, description
+				options+=("$id" "  -  $description ")
+			fi
 		fi
-	done < <(echo "$json_data" | jq -r '.menu[] | '${parent_id:+".. | objects | select(.id==\"$parent_id\") | .sub[]? |"}' select(.status != "Disabled") | "\(.id)\n\(.description)\n\(.condition)\n\(.container_type // "null")"' || exit 1)
+	done < <(echo "$json_data" | jq -r '.menu[] | '${parent_id:+".. | objects | select(.id==\"$parent_id\") | .sub[]? |"}' select(.status != "Disabled") | "\(.id)\n\(.description)\n\(.condition)\n\(.container_type // "null")\n\(.help // "")"' || exit 1)
 }
 
 module_options+=(
@@ -125,17 +146,14 @@ module_options+=(
 #
 generate_top_menu() {
 	local json_data="$1"
-	local status="$ARMBIAN $KERNELID ($DISTRO $DISTROID)"
-	local backtitle="$BACKTITLE"
-
+	local status=" "
 
 	while true; do
 		local menu_options=()
 
-		parse_menu_items menu_options
+		parse_menu_items menu_options --with-help
 
-		local OPTION=$($DIALOG --backtitle "$backtitle" --title "$TITLE" --menu "$status" 0 80 9 "${menu_options[@]}" \
-			--ok-button Select --cancel-button Exit 3>&1 1>&2 2>&3)
+		local OPTION=$(dialog_menu "armbian-config" "$status" 0 100 10 --ok-button Select --cancel-button Exit --item-help -- "${menu_options[@]}")
 		local exitstatus=$?
 
 		if [ $exitstatus = 0 ]; then
@@ -160,16 +178,28 @@ module_options+=(
 function generate_menu() {
 	local parent_id="$1"
 	local top_parent_id="$2"
-	local backtitle="$BACKTITLE"
 	local status=""
+	local menu_title
+
+	# Build menu title from parent IDs
+	if [[ -n "$top_parent_id" && -n "$parent_id" ]]; then
+		menu_title="$TITLE > $top_parent_id > $parent_id"
+	elif [[ -n "$parent_id" ]]; then
+		menu_title="$TITLE > $parent_id"
+	else
+		menu_title="$TITLE"
+	fi
+
+	# Get the 'description' text for the current menu item to use as prompt
+	local description_text=$(jq -r --arg id "$parent_id" '.menu[] | .. | objects | select(.id==$id) | .description // ""' "$json_file" 2>/dev/null)
+	status="$description_text"
 
 	while true; do
 		# Get the submenu options for the current parent_id
 		local submenu_options=()
-		parse_menu_items submenu_options
+		parse_menu_items submenu_options --with-help
 
-		local OPTION=$($DIALOG --backtitle "$BACKTITLE" --title "$top_parent_id $parent_id" --menu "$status" 0 80 9 "${submenu_options[@]}" \
-			--ok-button Select --cancel-button Back 3>&1 1>&2 2>&3)
+		local OPTION=$(dialog_menu "$menu_title" "$status" 0 100 10 --ok-button Select --cancel-button Back --item-help -- "${submenu_options[@]}")
 
 		local exitstatus=$?
 
@@ -225,7 +255,7 @@ function execute_command() {
 
 	# If a about exists, display it and wait for user confirmation
 	if [[ "$about" != "null" && $INPUTMODE != "cmd" ]]; then
-		get_user_continue "$about\nWould you like to continue?" process_input
+		get_user_continue "\n\n$about\n\nWould you like to continue?" process_input
 	fi
 
 	# Execute each command
@@ -251,9 +281,9 @@ function show_message() {
 	# Read the input from the pipe
 	input=$(cat)
 
-	# Display the "OK" message box with the input data
+	# Display the "OK" message box with the input data using the dialog_msgbox wrapper
 	if [[ $DIALOG != "bash" ]]; then
-		$DIALOG --title "$TITLE" --msgbox "$input" 0 0
+		dialog_msgbox "$TITLE" "$input" 0 0
 	else
 		echo -e "$input"
 		read -p -r "Press [Enter] to continue..."
@@ -284,15 +314,15 @@ function show_infobox() {
 			if ((${#buffer[@]} > 18)); then
 				buffer=("${buffer[@]:1}")
 			fi
-			# Display the lines in the buffer in the infobox
-
-			TERM=ansi $DIALOG --title "$TITLE" --infobox "$(printf "%s\n" "${buffer[@]}")" 16 90
+			# Display the lines in the buffer in the infobox using the dialog_infobox wrapper
+			dialog_infobox "$TITLE" "$(printf "%s\n" "${buffer[@]}")" 16 90
 			sleep 0.5
 		done
 	else
 
 		input="$1"
-		TERM=ansi $DIALOG --title "$TITLE" --infobox "$input" 6 80
+		# Display the infobox using the dialog_infobox wrapper
+		dialog_infobox "$TITLE" "$input" 6 80
 	fi
 	echo -ne '\033[3J' # clear the screen
 }
@@ -322,8 +352,8 @@ show_menu() {
 		options+=("$package" "$description")
 	done <<< "$input"
 
-	# Display the menu and get the user's choice
-	[[ $DIALOG != "bash" ]] && choice=$($DIALOG --title "$TITLE" --menu "Choose an option:" 0 0 9 "${options[@]}" 3>&1 1>&2 2>&3)
+	# Display the menu and get the user's choice using the dialog_menu wrapper
+	[[ $DIALOG != "bash" ]] && choice=$(dialog_menu "$TITLE" "Choose an option:" 0 0 9 -- "${options[@]}")
 
 	# Check if the user made a choice
 	if [ $? -eq 0 ]; then
@@ -350,7 +380,7 @@ function get_user_continue() {
 	local message="$1"
 	local next_action="$2"
 
-	if $($DIALOG --yesno "$message" 15 80 3>&1 1>&2 2>&3); then
+	if dialog_yesno "Warning" "$message" "Yes" "No" 15 80; then
 		$next_action
 	else
 		$next_action "No"
@@ -378,7 +408,10 @@ function info_wait_continue() {
 		sleep 1
 		echo $i
 	done
-	} | $DIALOG --gauge "$message" 15 80 0
+	} | dialog_gauge "$TITLE" "$message" 15 80
+
+	# Execute the next action after the gauge completes
+	[[ -n "$next_action" ]] && $next_action
 }
 
 menu_options+=(
@@ -430,7 +463,7 @@ function get_user_continue_secure() {
 	done
 
 	if [[ "$found" -eq 1 ]]; then
-		if $($DIALOG --yesno "$message" 10 80 3>&1 1>&2 2>&3); then
+		if dialog_yesno "" "$message" "Yes" "No" 10 80; then
 			$next_action
 		else
 			$next_action "No"
@@ -503,7 +536,7 @@ module_options+=(
 )
 
 sanitize() {
-	[[ "$1" =~ ^[a-zA-Z0-9_=]+$ ]] && echo "$1" || die "Invalid argument: $1"
+	[[ "$1" =~ ^[a-zA-Z0-9_=-]+$ ]] && echo "$1" || die "Invalid argument: $1"
 }
 
 module_options+=(
@@ -517,4 +550,550 @@ module_options+=(
 die() {
 	(( $# )) && echo "$@" >&2
 	exit 1
+}
+
+#
+# Dialog abstraction layer - provides unified interface for whiptail/dialog
+# Maintains backward compatibility while allowing easy switching between dialog tools
+#
+
+module_options+=(
+	["dialog_menu,author"]="@armbian"
+	["dialog_menu,desc"]="Display a menu dialog using the configured dialog tool. Supports --item-help for additional help text per item."
+	["dialog_menu,example"]="dialog_menu \"Title\" \"Prompt\" option1 \"Description 1\" option2 \"Description 2\"\n# With --item-help:\ndialog_menu \"Title\" \"Prompt\" --item-help tag1 \"Item 1\" \"Help for item 1\" tag2 \"Item 2\" \"Help for item 2\""
+	["dialog_menu,feature"]="dialog_menu"
+	["dialog_menu,status"]="Active"
+)
+
+#
+# Function to strip dialog color codes
+# Removes \Z sequences (e.g., \Zb\Z1\Zn) used by dialog colors
+# Used when whiptail is active since it doesn't support color codes
+#
+strip_color_codes() {
+	local text="$1"
+	# Remove all dialog color escape sequences \Z<any char>
+	echo "$text" | sed 's/\\Z.//g'
+}
+
+# Display a menu dialog with proper redirection for each dialog tool
+dialog_menu() {
+	local title="$1"
+	local prompt="$2"
+	local height="${3:-0}"
+	local width="${4:-80}"
+	local list_height="${5:-9}"
+	shift 5
+
+	# Parse arguments: everything before -- is extra args, everything after is data
+	local extra_args=()
+	local options=()
+	local use_item_help=false
+
+	while [[ $# -gt 0 ]]; do
+		if [[ "$1" == "--" ]]; then
+			shift
+			break
+		elif [[ "$1" == --* ]]; then
+			# For dialog options that require arguments (like --ok-button), consume both the flag and its value
+			case "$1" in
+				--ok-button|--cancel-button|--yes-button|--no-button|--default-item|--backtitle)
+					extra_args+=("$1")
+					shift
+					if [[ $# -gt 0 && "$1" != --* ]]; then
+						extra_args+=("$1")
+						shift
+					fi
+					;;
+				--item-help)
+					use_item_help=true
+					extra_args+=("$1")
+					shift
+					;;
+				*)
+					extra_args+=("$1")
+					shift
+					;;
+			esac
+		else
+			break
+		fi
+	done
+
+	# All remaining arguments are data (options)
+	options=("$@")
+
+	case "$DIALOG" in
+		"whiptail")
+			# whiptail doesn't support --item-help, convert triplets to pairs
+			local whiptail_args=()
+			local whiptail_options=()
+			for arg in "${extra_args[@]}"; do
+				[[ "$arg" != "--item-help" ]] && whiptail_args+=("$arg")
+			done
+			# If using item-help, convert triplets (tag, item, help) to pairs (tag, item)
+			if $use_item_help; then
+				for ((j=0; j<${#options[@]}; j+=3)); do
+					whiptail_options+=("${options[j]}" "${options[j+1]}")
+				done
+			else
+				whiptail_options=("${options[@]}")
+			fi
+			whiptail --title "$(strip_color_codes "$title")" "${whiptail_args[@]}" --backtitle "$(strip_color_codes "$BACKTITLE")" --menu "$prompt" $height $width $list_height "${whiptail_options[@]}" 3>&1 1>&2 2>&3
+			;;
+		"dialog")
+			# dialog outputs selection to stderr by default; swap stdout/stderr (3>&1 1>&2 2>&3) to capture stderr to stdout for command substitution
+			dialog --colors --title "$title" "${extra_args[@]}" --backtitle "$BACKTITLE" --menu "$prompt" $height $width $list_height "${options[@]}" 3>&1 1>&2 2>&3
+			;;
+		"read")
+			# Fallback to read - handle --no-items and --item-help if present
+			local use_no_items=false
+			for arg in "${extra_args[@]}"; do
+				[[ "$arg" == "--no-items" ]] && use_no_items=true
+			done
+
+			# Debug: show options array
+			[[ -n "$debug" ]] && echo "DEBUG: options array has ${#options[@]} elements" >&2
+			[[ -n "$debug" ]] && echo "DEBUG: use_item_help=$use_item_help" >&2
+
+			if $use_no_items; then
+				# Simple list without descriptions
+				local i=1
+				for item in "${options[@]}"; do
+					echo "$i. $item" >&2
+					((i++))
+				done
+			elif $use_item_help; then
+				# Triplets of tag, item, and help text
+				local i=1
+				for ((j=0; j<${#options[@]}; j+=3)); do
+					# Remove "  -  " prefix from description for cleaner display
+					local desc="${options[j+1]#\  -\  }"
+					echo "$i. ${options[j]} - $desc - ${options[j+2]}" >&2
+					((i++))
+				done
+			else
+				# Pairs of item and description
+				local i=1
+				for ((j=0; j<${#options[@]}; j+=2)); do
+					# Remove "  -  " prefix from description for cleaner display
+					local desc="${options[j]#\  -\  }"
+					echo "$i. $desc - ${options[j+1]}" >&2
+					((i++))
+				done
+			fi
+			read -p "Enter choice number: " choice_index
+			if [[ "$choice_index" =~ ^[0-9]+$ ]] && [ "$choice_index" -ge 1 ] && [ "$choice_index" -lt "$i" ]; then
+				if $use_no_items; then
+					echo "${options[((choice_index-1))]}"
+				elif $use_item_help; then
+					echo "${options[((choice_index-1)*3)]}"
+				else
+					echo "${options[((choice_index-1)*2)]}"
+				fi
+			fi
+			;;
+	esac
+}
+
+module_options+=(
+	["dialog_inputbox,author"]="@armbian"
+	["dialog_inputbox,desc"]="Display an input box dialog using the configured dialog tool"
+	["dialog_inputbox,example"]="dialog_inputbox \"Title\" \"Prompt\" \"default_value\""
+	["dialog_inputbox,feature"]="dialog_inputbox"
+	["dialog_inputbox,status"]="Active"
+)
+
+# Display an input box dialog with proper redirection for each dialog tool
+dialog_inputbox() {
+	local title="$1"
+	local prompt="$2"
+	local default="${3:-}"
+	local height="${4:-0}"
+	local width="${5:-80}"
+	local extra_args=("${@:6}")
+
+	# Parse remaining arguments as extra args
+
+	case "$DIALOG" in
+		"whiptail")
+			whiptail --title "$(strip_color_codes "$title")" "${extra_args[@]}" --backtitle "$(strip_color_codes "$BACKTITLE")" --inputbox "$prompt" $height $width "$default" 3>&1 1>&2 2>&3
+			;;
+		"dialog")
+			# dialog outputs selection to stderr by default; swap stdout/stderr (3>&1 1>&2 2>&3) to capture stderr to stdout for command substitution
+			dialog --colors --title "$title" "${extra_args[@]}" --backtitle "$BACKTITLE" --inputbox "$prompt" $height $width "$default" 3>&1 1>&2 2>&3
+			;;
+		"read")
+			read -p "$prompt [$default]: " result
+			echo "${result:-$default}"
+			;;
+	esac
+}
+
+module_options+=(
+	["dialog_passwordbox,author"]="@armbian"
+	["dialog_passwordbox,desc"]="Display a password input dialog using the configured dialog tool"
+	["dialog_passwordbox,example"]="dialog_passwordbox "Title" "Prompt""
+	["dialog_passwordbox,feature"]="dialog_passwordbox"
+	["dialog_passwordbox,status"]="Active"
+)
+
+# Display a password input dialog with proper redirection for each dialog tool
+dialog_passwordbox() {
+	local title="$1"
+	local prompt="$2"
+	local height="${3:-0}"
+	local width="${4:-80}"
+	local extra_args=("${@:5}")
+	# Parse remaining arguments as extra args
+
+	case "$DIALOG" in
+		"whiptail")
+			whiptail --title "$(strip_color_codes "$title")" "${extra_args[@]}" --backtitle "$(strip_color_codes "$BACKTITLE")" --passwordbox "$prompt" $height $width 3>&1 1>&2 2>&3
+			;;
+		"dialog")
+			# dialog outputs selection to stderr by default; swap stdout/stderr (3>&1 1>&2 2>&3) to capture stderr to stdout for command substitution
+			dialog --colors --title "$title" "${extra_args[@]}" --backtitle "$BACKTITLE" --insecure --passwordbox "$prompt" $height $width 3>&1 1>&2 2>&3
+			;;
+		"read")
+			# For read mode, use read -s to hide input
+			read -s -p "$prompt: " result
+			echo ""
+			echo "$result"
+			;;
+	esac
+}
+
+module_options+=(
+	["dialog_yesno,author"]="@armbian"
+	["dialog_yesno,desc"]="Display a yes/no dialog using the configured dialog tool"
+	["dialog_yesno,example"]="dialog_yesno \"Title\" \"Question\""
+	["dialog_yesno,feature"]="dialog_yesno"
+	["dialog_yesno,status"]="Active"
+)
+
+# Display a yes/no dialog with proper redirection for each dialog tool
+dialog_yesno() {
+	local title="$1"
+	local prompt="$2"
+	local yes_label="${3:-Yes}"
+	local no_label="${4:-No}"
+	local height="${5:-0}"
+	local width="${6:-80}"
+	local extra_args=("${@:7}")
+	# Parse remaining arguments as extra args
+
+	case "$DIALOG" in
+		"whiptail")
+			whiptail --title "$(strip_color_codes "$title")" "${extra_args[@]}" --backtitle "$(strip_color_codes "$BACKTITLE")" --yes-button "$yes_label" --no-button "$no_label" --yesno "$prompt" $height $width 3>&1 1>&2 2>&3
+			clear
+			;;
+		"dialog")
+			dialog --clear --colors --title "$title" "${extra_args[@]}" --backtitle "$BACKTITLE" --yes-button "$yes_label" --no-button "$no_label" --yesno "$prompt" $height $width
+			;;
+		"read")
+			read -p "$prompt [$yes_label/$no_label]: " choice
+			local choice_lower=$(echo "$choice" | tr '[:upper:]' '[:lower:]')
+			local yes_label_lower=$(echo "$yes_label" | tr '[:upper:]' '[:lower:]')
+			[[ "$choice_lower" == "y" ]] || [[ "$choice_lower" == "yes" ]] || [[ "$choice_lower" == "$yes_label_lower" ]]
+			;;
+	esac
+}
+
+module_options+=(
+	["dialog_msgbox,author"]="@armbian"
+	["dialog_msgbox,desc"]="Display a message box using the configured dialog tool"
+	["dialog_msgbox,example"]="dialog_msgbox \"Title\" \"Message\""
+	["dialog_msgbox,feature"]="dialog_msgbox"
+	["dialog_msgbox,status"]="Active"
+)
+
+# Display a message box with proper handling for each dialog tool
+dialog_msgbox() {
+	local title="$1"
+	local prompt="$2"
+	local height="${3:-0}"
+	local width="${4:-0}"
+	local extra_args=("${@:5}")
+
+	case "$DIALOG" in
+		"whiptail")
+			whiptail --title "$(strip_color_codes "$title")" "${extra_args[@]}" --backtitle "$(strip_color_codes "$BACKTITLE")" --msgbox "$prompt" $height $width
+			;;
+		"dialog")
+			dialog --colors --title "$title" "${extra_args[@]}" --backtitle "$BACKTITLE" --msgbox "$prompt" $height $width
+			;;
+		"read")
+			echo "$prompt"
+			read -p "Press Enter to continue..."
+			;;
+	esac
+}
+
+module_options+=(
+	["dialog_infobox,author"]="@armbian"
+	["dialog_infobox,desc"]="Display an info box using the configured dialog tool"
+	["dialog_infobox,example"]="dialog_infobox \"Title\" \"Message\" 6 80"
+	["dialog_infobox,feature"]="dialog_infobox"
+	["dialog_infobox,status"]="Active"
+)
+
+# Display an info box with proper handling for each dialog tool
+dialog_infobox() {
+	local title="$1"
+	local prompt="$2"
+	local height="${3:-6}"
+	local width="${4:-80}"
+
+	local extra_args=("${@:5}")
+
+	case "$DIALOG" in
+		"whiptail")
+			whiptail --title "$(strip_color_codes "$title")" "${extra_args[@]}" --backtitle "$(strip_color_codes "$BACKTITLE")" --infobox "$prompt" $height $width
+			;;
+		"dialog")
+			TERM=ansi dialog --colors --title "$title" "${extra_args[@]}" --backtitle "$BACKTITLE" --infobox "$prompt" $height $width
+			;;
+		"read")
+			echo "$prompt"
+			;;
+	esac
+}
+
+module_options+=(
+	["dialog_gauge,author"]="@armbian"
+	["dialog_gauge,desc"]="Display a gauge dialog for progress indication"
+	["dialog_gauge,example"]="echo 50 | dialog_gauge \"Title\" \"Progress\" 10 70"
+	["dialog_gauge,feature"]="dialog_gauge"
+	["dialog_gauge,status"]="Active"
+)
+
+# Display a gauge dialog (typically used with pipes for progress bars)
+dialog_gauge() {
+	local title="$1"
+	local prompt="$2"
+	local height="${3:-10}"
+	local width="${4:-70}"
+
+	# Parse remaining arguments as extra args
+	local extra_args=("${@:5}")
+	case "$DIALOG" in
+		"whiptail")
+			whiptail --title "$(strip_color_codes "$title")" "${extra_args[@]}" --backtitle "$(strip_color_codes "$BACKTITLE")" --gauge "$prompt" $height $width 0
+			;;
+		"dialog")
+			dialog --colors --title "$title" "${extra_args[@]}" --backtitle "$BACKTITLE" --gauge "$prompt" $height $width 0
+			;;
+		"read")
+			# For read mode, just display the prompt
+			echo "$prompt"
+			cat > /dev/null  # Consume the input
+			;;
+	esac
+}
+
+module_options+=(
+	["dialog_checklist,author"]="@armbian"
+	["dialog_checklist,desc"]="Display a checklist dialog using the configured dialog tool"
+	["dialog_checklist,example"]="dialog_checklist \"Title\" \"Prompt\" option1 \"Description 1\" ON option2 \"Description 2\" OFF"
+	["dialog_checklist,feature"]="dialog_checklist"
+	["dialog_checklist,status"]="Active"
+)
+
+# Display a checklist dialog with proper redirection for each dialog tool
+dialog_checklist() {
+	local title="$1"
+	local prompt="$2"
+	local height="${3:-0}"
+	local width="${4:-80}"
+	local list_height="${5:-9}"
+	shift 5
+
+	# Parse arguments: everything before -- is extra args, everything after is data
+	local extra_args=()
+	local options=()
+
+	while [[ $# -gt 0 ]]; do
+		if [[ "$1" == "--" ]]; then
+			shift
+			break
+		elif [[ "$1" == --* ]]; then
+			# For dialog options that require arguments, consume both the flag and its value
+			case "$1" in
+				--ok-button|--cancel-button|--yes-button|--no-button)
+					extra_args+=("$1")
+					shift
+					if [[ $# -gt 0 && "$1" != --* ]]; then
+						extra_args+=("$1")
+						shift
+					fi
+					;;
+				--separate-output|--nocancel)
+					extra_args+=("$1")
+					shift
+					;;
+				*)
+					extra_args+=("$1")
+					shift
+					;;
+			esac
+		else
+			break
+		fi
+	done
+
+	# All remaining arguments are data (options)
+	options=("$@")
+
+	case "$DIALOG" in
+		"whiptail")
+			whiptail --title "$(strip_color_codes "$title")" "${extra_args[@]}" --backtitle "$(strip_color_codes "$BACKTITLE")" --checklist "$prompt" $height $width $list_height "${options[@]}" 3>&1 1>&2 2>&3
+			;;
+		"dialog")
+			# dialog outputs selection to stderr by default; swap stdout/stderr (3>&1 1>&2 2>&3) to capture stderr to stdout for command substitution
+			dialog --colors --title "$title" "${extra_args[@]}" --backtitle "$BACKTITLE" --checklist "$prompt" $height $width $list_height "${options[@]}" 3>&1 1>&2 2>&3
+			;;
+		"read")
+			# Fallback to read - handle checklist by showing numbered list
+			local i=1
+			for ((j=0; j<${#options[@]}; j+=3)); do
+				local status="${options[j+2]}"
+				local marker=" "
+				[[ "$status" =~ ^[Oo][Nn]$ ]] && marker="*"
+				echo "$i. [$marker] ${options[j]} - ${options[j+1]}"
+				((i++))
+			done
+			read -p "Enter choice numbers (comma-separated): " choices
+			for choice in ${choices//,/ }; do
+				if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -lt "$i" ]; then
+					idx=$((choice - 1))
+					echo "${options[idx*3]}"
+				fi
+			done
+			;;
+	esac
+}
+
+dialog_radiolist() {
+	local title="$1"
+	local prompt="$2"
+	local height="${3:-0}"
+	local width="${4:-80}"
+	local list_height="${5:-9}"
+	shift 5
+
+	# Parse arguments: everything before -- is extra args, everything after is data
+	local extra_args=()
+	local options=()
+
+	while [[ $# -gt 0 ]]; do
+		if [[ "$1" == "--" ]]; then
+			shift
+			break
+		elif [[ "$1" == --* ]]; then
+			# For dialog options that require arguments, consume both the flag and its value
+			case "$1" in
+				--ok-button|--cancel-button|--yes-button|--no-button)
+					extra_args+=("$1")
+					shift
+					if [[ $# -gt 0 && "$1" != --* ]]; then
+						extra_args+=("$1")
+						shift
+					fi
+					;;
+				--separate-output|--nocancel|--notags)
+					extra_args+=("$1")
+					shift
+					;;
+				*)
+					extra_args+=("$1")
+					shift
+					;;
+			esac
+		else
+			break
+		fi
+	done
+
+	# All remaining arguments are data (options)
+	options=("$@")
+
+	case "$DIALOG" in
+		"whiptail")
+			whiptail --title "$(strip_color_codes "$title")" "${extra_args[@]}" --backtitle "$(strip_color_codes "$BACKTITLE")" --radiolist "$prompt" $height $width $list_height "${options[@]}" 3>&1 1>&2 2>&3
+			;;
+		"dialog")
+			# dialog outputs selection to stderr by default; swap stdout/stderr (3>&1 1>&2 2>&3) to capture stderr to stdout for command substitution
+			dialog --colors --title "$title" "${extra_args[@]}" --backtitle "$BACKTITLE" --radiolist "$prompt" $height $width $list_height "${options[@]}" 3>&1 1>&2 2>&3
+			;;
+		"read")
+			# Fallback to read - handle radiolist by showing numbered list
+			local i=1
+			for ((j=0; j<${#options[@]}; j+=3)); do
+				local status="${options[j+2]}"
+				local marker=" "
+				[[ "$status" =~ ^[Oo][Nn]$ ]] && marker="*"
+				echo "$i. [$marker] ${options[j]} - ${options[j+1]}"
+				((i++))
+			done
+			read -p "Enter choice number: " choice
+			if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -lt "$i" ]; then
+				idx=$((choice - 1))
+				echo "${options[idx*3]}"
+			fi
+			;;
+	esac
+}
+
+module_options+=(
+	["wait_for_container_ready,author"]="@armbian"
+	["wait_for_container_ready,desc"]="Wait for a Docker container to be ready by checking for build_version label"
+	["wait_for_container_ready,example"]="wait_for_container_ready \"container_name\" 20 3"
+	["wait_for_container_ready,feature"]="wait_for_container_ready"
+	["wait_for_container_ready,status"]="Active"
+)
+
+# Wait for a Docker container to be ready
+# Usage: wait_for_container_ready <container_name> [max_attempts] [sleep_interval] [check_type] [extra_condition]
+# check_type: "build_version" (default) or "running"
+wait_for_container_ready() {
+	local container_name="$1"
+	local max_attempts="${2:-20}"
+	local sleep_interval="${3:-3}"
+	local check_type="${4:-build_version}"
+	local extra_condition="${5:-}"
+
+	for ((i=1; i<=max_attempts; i++)); do
+		local container_ready=false
+
+		case "$check_type" in
+			"running")
+				local state
+				state="$(docker inspect -f '{{.State.Status}}' "$container_name" 2>/dev/null || true)"
+				if [[ "$state" == "running" ]]; then
+					container_ready=true
+				fi
+				;;
+			"build_version"|*)
+				if docker inspect -f '{{ index .Config.Labels "build_version" }}' "$container_name" >/dev/null 2>&1; then
+					container_ready=true
+				fi
+				;;
+		esac
+
+		if $container_ready; then
+			# Check extra condition if provided
+			if [[ -n "$extra_condition" ]]; then
+				if eval "$extra_condition"; then
+					return 0
+				fi
+			else
+				return 0
+			fi
+		fi
+		sleep "$sleep_interval"
+	done
+
+	echo -e "\nTimed out waiting for ${container_name} to start, consult your container logs for more info (\`docker logs ${container_name}\`)"
+	return 1
 }

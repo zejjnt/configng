@@ -84,7 +84,7 @@ function module_wireguard () {
 
 			# Get local subnets from user input or use default
 			if [[ -z $2 ]]; then
-				LOCAL_SUBNETS=$($DIALOG --title "Enter comma delimited subnets for routing" --inputbox "\n* delete if this is not your local subnet \n" 9 70 "10.0.10.0/24" 3>&1 1>&2 2>&3)
+			LOCAL_SUBNETS=$(dialog_inputbox "Enter comma delimited subnets for routing" "\n* delete if this is not your local subnet \n" "10.0.10.0/24" 9 70)
 			else
 				LOCAL_SUBNETS="$2"
 			fi
@@ -102,17 +102,7 @@ function module_wireguard () {
 				--restart unless-stopped \
 				--sysctl net.ipv4.ip_forward=1 \
 				lscr.io/linuxserver/wireguard:latest
-			for i in $(seq 1 20); do
-				if docker inspect -f '{{ index .Config.Labels "build_version" }}' wireguard >/dev/null 2>&1 && [[ -f "${WIREGUARD_BASE}/config/wg_confs/client.conf" ]]; then
-					break
-				else
-					sleep 3
-				fi
-				if [ $i -eq 20 ] ; then
-					echo -e "\nTimed out waiting for ${title} to start, consult your container logs for more info (\`docker logs wireguard\`)"
-					exit 1
-				fi
-			done
+			wait_for_container_ready "wireguard" 20 3 '[[ -f "${WIREGUARD_BASE}/config/wg_confs/client.conf" ]]' || exit 1
 			if [[ -n "${LOCAL_SUBNETS}" ]]; then
 				# Create host-side route helper script for LAN routing via WireGuard container
 				cat > "/usr/local/bin/add-vpn-lan-routes.sh" <<- EOT
@@ -186,10 +176,39 @@ function module_wireguard () {
 			# Pull the image if not already done
 			${module_options["module_wireguard,feature"]} ${commands[0]}
 
+			local dialog_rc
 			if [[ -z $2 ]]; then
-				NUMBER_OF_PEERS=$($DIALOG --title "Enter comma delimited peer keywords" --inputbox " \n" 7 50 "laptop" 3>&1 1>&2 2>&3)
+				NUMBER_OF_PEERS=$(dialog_inputbox "Enter comma delimited peer keywords" "Valid characters: letters, numbers, hyphens, underscores" "laptop" 9 70)
+				dialog_rc=$?
+			else
+				NUMBER_OF_PEERS="$2"
+				dialog_rc=0
 			fi
-			if [[ $? -eq 0 ]]; then
+			if [[ $dialog_rc -eq 0 ]]; then
+				# Validate peer names - reject spaces, newlines, and special characters
+				# First, remove all newlines, carriage returns, and extra spaces from the input
+				NUMBER_OF_PEERS=$(echo "$NUMBER_OF_PEERS" | tr -d '\n\r' | tr -s ' ')
+
+				# Check for common help text patterns that might have been accidentally captured
+				if [[ "$NUMBER_OF_PEERS" =~ --help ]] || [[ "$NUMBER_OF_PEERS" =~ usage ]] || [[ "$NUMBER_OF_PEERS" =~ Usage ]]; then
+					dialog_msgbox "Error" "Invalid input: Help text detected\n\nPlease enter only comma-separated peer names without any additional text or commands.\n\nExample: laptop,desktop,phone" 10 60
+					exit 1
+				fi
+
+				# Split by comma and validate each peer name
+				IFS=',' read -ra peers_array <<< "$NUMBER_OF_PEERS"
+				for peer in "${peers_array[@]}"; do
+					# Trim leading and trailing whitespace more safely
+					peer="${peer#"${peer%%[![:space:]]*}"}"
+					peer="${peer%"${peer##*[![:space:]]}"}"
+					# Skip empty peer names
+					[[ -z "$peer" ]] && continue
+					# Check for invalid characters (spaces, special chars except hyphen and underscore)
+					if [[ ! "$peer" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+						dialog_msgbox "Error" "Invalid peer name: '$peer'\n\nPeer names must contain only:\n  - Letters (a-z, A-Z)\n  - Numbers (0-9)\n  - Hyphens (-)\n  - Underscores (_)\n\nSpaces, newlines and special characters are not allowed." 11 60
+						exit 1
+					fi
+				done
 				${module_options["module_wireguard,feature"]} ${commands[6]}
 				if [[ $? -eq 0 ]]; then
 					docker rm -f wireguard >/dev/null 2>&1
@@ -219,17 +238,20 @@ function module_wireguard () {
 					--sysctl="net.ipv4.conf.all.src_valid_mark=1" \
 					--restart unless-stopped \
 					lscr.io/linuxserver/wireguard:latest
-				for i in $(seq 1 20); do
-					if docker inspect -f '{{ index .Config.Labels "build_version" }}' wireguard >/dev/null 2>&1 && [[ -f "${WIREGUARD_BASE}/config/wg_confs/wg0.conf" ]]; then
+				wait_for_container_ready "wireguard" 20 3 '[[ -f "${WIREGUARD_BASE}/config/wg_confs/wg0.conf" ]]' || exit 1
+
+				# Wait for peer configs to be created by the container
+				local peer_wait_count=0
+				local max_peer_wait=10
+				while [[ $peer_wait_count -lt $max_peer_wait ]]; do
+					peer_count=$(find "${WIREGUARD_BASE}/config/" -name "peer_*.conf" -type f 2>/dev/null | wc -l)
+					if [[ $peer_count -gt 0 ]]; then
 						break
-					else
-						sleep 3
 					fi
-					if [ $i -eq 20 ] ; then
-						echo -e "\nTimed out waiting for ${title} to start, consult your container logs for more info (\`docker logs wireguard\`)"
-						exit 1
-					fi
+					sleep 1
+					((peer_wait_count++))
 				done
+
 				${module_options["module_wireguard,feature"]} ${commands[5]}
 			fi
 		;;
@@ -254,15 +276,37 @@ function module_wireguard () {
 			[[ -n "${WIREGUARD_BASE}" && "${WIREGUARD_BASE}" != "/" ]] && rm -rf "${WIREGUARD_BASE}"
 		;;
 		"${commands[5]}")
-			if [[ -z $2 ]]; then
-				local LIST=($(ls -1 ${WIREGUARD_BASE}/config/ 2>/dev/null | grep peer | cut -d"_" -f2))
-				local LIST_LENGTH=$((${#LIST[@]} / 2))
-				local SELECTED_PEER=$(dialog --title "Select peer" --no-items --menu "" $((${LIST_LENGTH} + 8)) 60 $((${LIST_LENGTH})) "${LIST[@]}" 3>&1 1>&2 2>&3)
-			fi
+		if [[ -z $2 ]]; then
+			local LIST=()
+			# Find all peer config files recursively
+			while IFS= read -r -d '' peer_conf; do
+				peer="${peer_conf#peer_}"
+				peer="${peer%.conf}"
+				[[ -n "$peer" ]] && LIST+=("$peer" "$peer")
+			done < <(find "${WIREGUARD_BASE}/config/" -name "peer_*.conf" -type f -printf "%f\0")
+			local LIST_LENGTH=$((${#LIST[@]} / 2))
+
+				# Check if there are any peers to display
+				if [[ $LIST_LENGTH -eq 0 ]]; then
+					# Debug: show what files exist
+					local existing_files=$(find "${WIREGUARD_BASE}/config/" -type f -name "*.conf" 2>/dev/null | wc -l)
+					dialog_msgbox "No peers found" "No WireGuard peer configs found.\n\nFound $existing_files .conf file(s) in:\n  ${WIREGUARD_BASE}/config/\n\nPeer configs should be named:\n  peer_<name>/peer_<name>.conf\n\nPlease create a server configuration first using:\n  armbian-config software wireguard server <peer_names>" 12 70
+					exit 0
+				fi
+			local SELECTED_PEER=$(dialog_menu "Select peer" "" $((${LIST_LENGTH} + 8)) 60 ${LIST_LENGTH} -- "${LIST[@]}")
+		else
+			local SELECTED_PEER="$2"
+		fi
 			if [[ -n ${SELECTED_PEER} ]]; then
+				# Validate peer name to prevent command injection
+				if [[ ! "${SELECTED_PEER}" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+				echo "Error: Invalid peer name '${SELECTED_PEER}'. Peer names must contain only letters, numbers, hyphens, and underscores."
+				echo "This error may occur if no peers are configured or if dialog output was corrupted."
+				exit 1
+				fi
 				clear
-				docker exec -it wireguard /app/show-peer ${SELECTED_PEER}
-				cat ${WIREGUARD_BASE}/config/peer_${SELECTED_PEER}/peer_${SELECTED_PEER}.conf
+				docker exec -it wireguard /app/show-peer "${SELECTED_PEER}"
+				cat "${WIREGUARD_BASE}/config/peer_${SELECTED_PEER}/peer_${SELECTED_PEER}.conf"
 				read
 			fi
 		;;
