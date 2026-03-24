@@ -852,7 +852,7 @@ dialog_infobox() {
 			whiptail --title "$(strip_color_codes "$title")" "${extra_args[@]}" --backtitle "$(strip_color_codes "$BACKTITLE")" --infobox "$prompt" $height $width
 			;;
 		"dialog")
-			TERM=ansi dialog --colors --title "$title" "${extra_args[@]}" --backtitle "$BACKTITLE" --infobox "$prompt" $height $width
+			dialog --colors --title "$title" "${extra_args[@]}" --backtitle "$BACKTITLE" --infobox "$prompt" $height $width
 			;;
 		"read")
 			echo "$prompt"
@@ -890,6 +890,94 @@ dialog_gauge() {
 			cat > /dev/null  # Consume the input
 			;;
 	esac
+}
+
+module_options+=(
+	["show_module_help,author"]="@armbian"
+	["show_module_help,desc"]="Generic module help dialog for containers and native installs"
+	["show_module_help,example"]="show_module_help \"module_headers\" \"Kernel Headers\" \"\" \"native\""
+	["show_module_help,feature"]="show_module_help"
+	["show_module_help,status"]="Active"
+)
+
+#
+# Generic module help dialog - works for containers and native installs
+# Usage: show_module_help <module_prefix> <title> [additional_info] [module_type]
+#   module_prefix: e.g., "module_unbound", "module_headers"
+#   title: Display title for the help dialog
+#   additional_info: Optional extra info to append (e.g., port, image)
+#   module_type: Optional, "container" (default) or "native"
+#
+show_module_help() {
+	local module_prefix="$1"
+	local title="$2"
+	local additional_info="${3:-}"
+	local module_type="${4:-container}"
+
+	local feature="${module_options["${module_prefix},feature"]}"
+	local desc="${module_options["${module_prefix},desc"]}"
+	local example="${module_options["${module_prefix},example"]}"
+	local doc_link="${module_options["${module_prefix},doc_link"]}"
+
+	local help_text="Usage: $feature <command>\n\n"
+	help_text+="Available commands:\n\n"
+
+	# Parse commands and create descriptions
+	IFS=' ' read -r -a commands <<< "$example"
+	for cmd in "${commands[@]}"; do
+		# Check if module has custom description for this command
+		local custom_desc="${module_options["${module_prefix},help_${cmd}"]}"
+		if [[ -n "$custom_desc" ]]; then
+			help_text+="  $cmd  - $custom_desc\n"
+			continue
+		fi
+
+		# Fall back to default descriptions based on module type
+		case "$cmd" in
+			install)
+				if [[ "$module_type" == "container" ]]; then
+					help_text+="  install  - Pull Docker image and create container\n"
+				else
+					help_text+="  install  - $desc\n"
+				fi
+				;;
+			remove)
+				if [[ "$module_type" == "container" ]]; then
+					help_text+="  remove   - Remove container and image\n"
+				else
+					help_text+="  remove   - Remove installed packages\n"
+				fi
+				;;
+			purge)
+				if [[ "$module_type" == "container" ]]; then
+					help_text+="  purge    - Remove container, image, and all data directories\n"
+				else
+					help_text+="  purge    - Remove packages and all configuration/data\n"
+				fi
+				;;
+			status)
+				help_text+="  status   - Show installation status\n"
+				;;
+			help)
+				help_text+="  help     - Show this help message\n"
+				;;
+			password)
+				help_text+="  password - Set admin password\n"
+				;;
+			*)
+				help_text+="  $cmd  - $cmd command\n"
+				;;
+		esac
+	done
+
+	[[ -n "$additional_info" ]] && help_text+="\n$additional_info"
+	help_text+="\nDocumentation: $doc_link"
+
+	if [[ "$DIALOG" == "read" ]]; then
+		echo -e "$help_text"
+	else
+		dialog_msgbox "$title Help" "$help_text" 20 70
+	fi
 }
 
 module_options+=(
@@ -1047,7 +1135,7 @@ dialog_radiolist() {
 
 module_options+=(
 	["wait_for_container_ready,author"]="@armbian"
-	["wait_for_container_ready,desc"]="Wait for a Docker container to be ready by checking for build_version label"
+	["wait_for_container_ready,desc"]="Wait for a Docker container to be ready (default: check if running)"
 	["wait_for_container_ready,example"]="wait_for_container_ready \"container_name\" 20 3"
 	["wait_for_container_ready,feature"]="wait_for_container_ready"
 	["wait_for_container_ready,status"]="Active"
@@ -1055,26 +1143,26 @@ module_options+=(
 
 # Wait for a Docker container to be ready
 # Usage: wait_for_container_ready <container_name> [max_attempts] [sleep_interval] [check_type] [extra_condition]
-# check_type: "build_version" (default) or "running"
+# check_type: "running" (default, works for all containers) or "build_version" (LinuxServer-specific)
 wait_for_container_ready() {
 	local container_name="$1"
 	local max_attempts="${2:-20}"
 	local sleep_interval="${3:-3}"
-	local check_type="${4:-build_version}"
+	local check_type="${4:-running}"
 	local extra_condition="${5:-}"
 
 	for ((i=1; i<=max_attempts; i++)); do
 		local container_ready=false
 
 		case "$check_type" in
-			"running")
+			"running"|*)
 				local state
 				state="$(docker inspect -f '{{.State.Status}}' "$container_name" 2>/dev/null || true)"
 				if [[ "$state" == "running" ]]; then
 					container_ready=true
 				fi
 				;;
-			"build_version"|*)
+			"build_version")
 				if docker inspect -f '{{ index .Config.Labels "build_version" }}' "$container_name" >/dev/null 2>&1; then
 					container_ready=true
 				fi

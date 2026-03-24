@@ -295,6 +295,9 @@ sudo armbian-config
     - ### Uptime Kuma self-hosted monitoring tool
     - ### Uptime Kuma remove
     - ### Uptime Kuma purge with data folder
+    - ### Dozzle real-time Docker log viewer
+    - ### Dozzle remove
+    - ### Dozzle purge
 
 
   - ### Console network tools for measuring load and bandwidth
@@ -613,6 +616,9 @@ Outputs:
 	--cmd UPK001 - Uptime Kuma self-hosted monitoring tool
 	--cmd UPK002 - Uptime Kuma remove (http://localhost:3001)
 	--cmd UPK003 - Uptime Kuma purge with data folder
+	--cmd DOZ001 - Dozzle real-time Docker log viewer
+	--cmd DOZ002 - Dozzle remove
+	--cmd DOZ003 - Dozzle purge
     Netconfig - Console network tools for measuring load and bandwidth
 	--cmd AVH001 - avahi-daemon hostname broadcast via mDNS
 	--cmd AVH002 - avahi-daemon remove
@@ -1022,6 +1028,7 @@ These helper functions facilitate various operations related to job management, 
 | Display a yes/no dialog using the configured dialog tool | dialog_yesno "Title" "Question" | @armbian 
 | Generate Document files. | generate_readme | @Tearran 
 | Storing netplan config to tmp | store_netplan_config | @igorpecovnik 
+| Generic module help dialog for containers and native installs | show_module_help "module_headers" "Kernel Headers" "" "native" | @armbian 
 | Install PostgreSQL container (advanced relational database) | install remove purge status help | @armbian 
 | Install jellyfin container | install remove purge status help | @armbian 
 | Install jellyseerr container | install remove purge status help | @armbian 
@@ -1088,12 +1095,13 @@ These helper functions facilitate various operations related to job management, 
 | Install transmission container | install remove purge status help | @armbian 
 | Install nextcloud container | install remove purge status help | @igorpecovnik 
 | Install navidrome container | install remove purge status help | @armbian 
-| Wait for a Docker container to be ready by checking for build_version label | wait_for_container_ready "container_name" 20 3 | @armbian 
+| Wait for a Docker container to be ready (default: check if running) | wait_for_container_ready "container_name" 20 3 | @armbian 
 | Install Openhab | install remove purge status help | @igorpecovnik 
 | Uses Avalible (Whiptail, DIALOG, READ) for the menu interface | <function_name> | Tearran 
 | Install medusa container | install remove purge status help | @armbian 
 | Install prometheus container | install remove purge status help | @armbian 
 | Netplan wrapper | module_network_config | @igorpecovnik 
+| Install Dozzle container (real-time Docker log viewer) | install remove purge status help | @armbian 
 | Install syncthing container | install remove purge status help | @igorpecovnik 
 | Install Zerotier | help install remove start stop enable disable status check | @jnovos 
 | Install grafana container | install remove purge status help | @armbian 
@@ -1133,7 +1141,7 @@ parse_menu_items 'menu_options_array' --with-help | @viraniac
 | Generate a Help message for cli commands. | see_cmd_list [category] | @Tearran 
 | Install mariadb container | install remove purge status help | @igorpecovnik 
 | Disable service | srv_disable ssh.service | @dimitry-ishenko 
-| Check if the current OS is supported based on /etc/armbian-distribution-status | help | @Tearran 
+| Check if the current OS distribution is supported | check_os_status | @Tearran 
 | Install prowlarr container | install remove purge status help | @Prowlarr 
 | Install nfsd server | install remove manage add status clients servers help | @igorpecovnik 
 | Install and configure Armbian rsyncd. | install remove status help | @igorpecovnik 
