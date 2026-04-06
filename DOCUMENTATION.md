@@ -33,6 +33,11 @@ sudo armbian-config
     - ### Manage NFS Client
     - ### ZFS filesystem - enable support
     - ### ZFS filesystem - remove support
+    - ### ZFS filesystem - performance tuning
+    - ### ZFS filesystem - import existing pools
+    - ### Memory management - enable features
+    - ### Memory management - disable features
+    - ### Memory management - tune parameters
 
 
   - ### Manage SSH daemon options, enable 2FA
@@ -171,6 +176,9 @@ sudo armbian-config
   - ### Applications and tools for development
     - ### Install tools for cloning and managing repositories (git)
     - ### Remove tools for cloning and managing repositories (git)
+    - ### Code-server VS Code in browser
+    - ### Code-server remove
+    - ### Code-server purge with data folder
 
 
   - ### Download apps for movies, TV shows, music and subtitles
@@ -213,6 +221,9 @@ sudo armbian-config
     - ### Do your finances with Actual Budget
     - ### Actual Budget remove
     - ### Actual Budget purge with data folder
+    - ### Install Wallos subscription tracker
+    - ### Remove Wallos subscription tracker
+    - ### Purge Wallos subscription tracker
 
 
   - ### Home Automation for control home appliances
@@ -406,6 +417,11 @@ Outputs:
 	--cmd NETF10 - Show and manage NFS mounts
 	--cmd ZFS001 - ZFS filesystem - enable support (v2.2.2)
 	--cmd ZFS002 - ZFS filesystem - remove support (ZFS is not installed)
+	--cmd ZFS003 - ZFS filesystem - performance tuning
+	--cmd ZFS004 - ZFS filesystem - import existing pools
+	--cmd MEM001 - Memory management - enable features
+	--cmd MEM002 - Memory management - disable features
+	--cmd MEM003 - Memory management - tune parameters
     Access - Manage SSH daemon options, enable 2FA
 	--cmd ACC001 - Disable root login
 	--cmd ACC002 - Enable root login
@@ -504,6 +520,9 @@ Outputs:
     DevTools - Applications and tools for development
 	--cmd GIT001 - Install tools for cloning and managing repositories (git)
 	--cmd GIT002 - Remove tools for cloning and managing repositories (git)
+	--cmd COD001 - Code-server VS Code in browser
+	--cmd COD002 - Code-server remove
+	--cmd COD003 - Code-server purge with data folder
     Downloaders - Download apps for movies, TV shows, music and subtitles
 	--cmd BAZ001 - Bazarr automatic subtitles downloader for Sonarr and Radarr
 	--cmd BAZ002 - Bazarr remove (http://localhost:6767)
@@ -542,6 +561,9 @@ Outputs:
 	--cmd ABU001 - Do your finances with Actual Budget
 	--cmd ABU002 - Actual Budget remove (http://localhost:5443)
 	--cmd ABU003 - Actual Budget purge with data folder
+	--cmd WAL001 - Install Wallos subscription tracker
+	--cmd WAL002 - Remove Wallos subscription tracker (http://localhost:8282)
+	--cmd WAL003 - Purge Wallos subscription tracker
     HomeAutomation - Home Automation for control home appliances
 	--cmd DOM001 - Domoticz open source home automation
 	--cmd DOM002 - Domoticz remove (http://localhost:8780)
@@ -1027,11 +1049,12 @@ These helper functions facilitate various operations related to job management, 
 | Install sonarr container | install remove purge status help | @armbian 
 | Display a yes/no dialog using the configured dialog tool | dialog_yesno "Title" "Question" | @armbian 
 | Generate Document files. | generate_readme | @Tearran 
-| Storing netplan config to tmp | store_netplan_config | @igorpecovnik 
+|  |  | @igorpecovnik 
 | Generic module help dialog for containers and native installs | show_module_help "module_headers" "Kernel Headers" "" "native" | @armbian 
 | Install PostgreSQL container (advanced relational database) | install remove purge status help | @armbian 
 | Install jellyfin container | install remove purge status help | @armbian 
 | Install jellyseerr container | install remove purge status help | @armbian 
+| Memory management and tuning interface | install remove status tune help | @igorpecovnik 
 | Needed by generate_menu | execute_command 'id' | @Tearran 
 | Display an input box dialog using the configured dialog tool | dialog_inputbox "Title" "Prompt" "default_value" | @armbian 
 | Display a Yes/No dialog box and process continue/exit | get_user_continue 'Do you wish to continue?' process_input | @Tearran 
@@ -1045,6 +1068,7 @@ These helper functions facilitate various operations related to job management, 
 | Install domoticz container | install remove purge status help | @armbian 
 | Install and configure automatic updates | install remove configure status defaults help | @igorpecovnik 
 | Menu for armbianmonitor features | see_monitoring | @Tearran 
+| Install VS Code in browser container | install remove purge status help | @igorpecovnik 
 | Enable/disable device tree overlays |  | @viraniac 
 | XFCE desktop packages | install remove disable enable status auto manual login help | @igorpecovnik 
 | Remove package | pkg_remove nmap | @dimitry-ishenko 
@@ -1058,7 +1082,7 @@ These helper functions facilitate various operations related to job management, 
 | Display a gauge dialog for progress indication | echo 50 | dialog_gauge "Title" "Progress" 10 70 | @armbian 
 | Generate 'Armbian CPU logo' SVG for document file. | generate_svg | @Tearran 
 | Upgrade installed packages (potentially removing some) | pkg_full_upgrade | @dimitry-ishenko 
-| Install ZFS filesystem support | install remove status kernel_max zfs_version zfs_installed_version help | @igorpecovnik 
+| Install ZFS filesystem support | install remove status tune scan import kernel_max zfs_version zfs_installed_version help | @igorpecovnik 
 | Check if package is installed | pkg_installed mc | @dimitry-ishenko 
 | Update submenu descriptions based on conditions | update_submenu_data | @Tearran 
 | Install evcc container | install remove purge status help | @naltatis 
@@ -1109,6 +1133,7 @@ These helper functions facilitate various operations related to job management, 
 | Install owncloud container | install remove purge status help | @armbian 
 | Install netdata container | install remove purge status help | @armbian 
 | Change the background color of the terminal or dialog box | set_colors 0-7 | @Tearran 
+| Install Wallos finance tracker container | install remove purge status help | @igorpecovnik 
 | Show general information about this tool | about_armbian_configng | @igorpecovnik 
 | Install unbound container | install remove purge status help | @igorpecovnik 
 | Serve the edit and debug server. | serve_doc | @Tearran 

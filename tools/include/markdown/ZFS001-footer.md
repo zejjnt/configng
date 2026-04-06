@@ -15,3 +15,4 @@
 ###### Advanced Security
 - **Native Encryption:** Supports dataset-level encryption for secure data storage.
 - **RAID-Z:** A superior RAID alternative that prevents write-hole issues.
+

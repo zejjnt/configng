@@ -281,6 +281,7 @@
                             "id": "ZFS001",
                             "description": "ZFS filesystem - enable support",
                             "short": "ZFS",
+                            "about": "Enabling ZFS will compile kernel modules and install additional packages.",
                             "module": "module_generic",
                             "command": [
                                 "module_zfs install"
@@ -293,6 +294,7 @@
                         {
                             "id": "ZFS002",
                             "description": "ZFS filesystem - remove support",
+                            "about": "Removing ZFS might change functionality of your storage. Existing pools may become inaccessible!",
                             "command": [
                                 "module_zfs remove"
                             ],
@@ -300,6 +302,71 @@
                             "author": "@armbian",
                             "condition": "module_zfs status",
                             "help": "ZFS filesystem - remove support"
+                        },
+                        {
+                            "id": "ZFS003",
+                            "description": "ZFS filesystem - performance tuning",
+                            "short": "Tune ZFS",
+                            "module": "module_generic",
+                            "command": [
+                                "module_zfs tune"
+                            ],
+                            "status": "Stable",
+                            "author": "@armbian",
+                            "condition": "module_zfs status",
+                            "help": "Fine-tune ZFS performance parameters (ARC cache, dirty data, TXG timeout, compression)"
+                        },
+                        {
+                            "id": "ZFS004",
+                            "description": "ZFS filesystem - import existing pools",
+                            "short": "Import ZFS Pool",
+                            "module": "module_generic",
+                            "command": [
+                                "module_zfs import"
+                            ],
+                            "status": "Stable",
+                            "author": "@armbian",
+                            "condition": "module_zfs scan",
+                            "help": "Browse and import existing ZFS pools that are not currently imported"
+                        },
+                        {
+                            "id": "MEM001",
+                            "description": "Memory management - enable features",
+                            "short": "Memory",
+                            "module": "module_generic",
+                            "command": [
+                                "module_memory install"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_memory status",
+                            "help": "Enable ZRAM compression and memory tuning"
+                        },
+                        {
+                            "id": "MEM002",
+                            "description": "Memory management - disable features",
+                            "short": "Memory",
+                            "module": "module_generic",
+                            "command": [
+                                "module_memory remove"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_memory status",
+                            "help": "Disable ZRAM compression and memory tuning"
+                        },
+                        {
+                            "id": "MEM003",
+                            "description": "Memory management - tune parameters",
+                            "short": "Tune Memory",
+                            "module": "module_generic",
+                            "command": [
+                                "module_memory tune"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_memory status",
+                            "help": "Fine-tune ZRAM compression and swappiness parameters"
                         }
                     ],
                     "help": "Manage storage devices, ZFS filesystems, and NFS mounts"
