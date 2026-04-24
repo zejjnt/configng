@@ -653,8 +653,8 @@ dialog_menu() {
 			done
 
 			# Debug: show options array
-			[[ -n "$debug" ]] && echo "DEBUG: options array has ${#options[@]} elements" >&2
-			[[ -n "$debug" ]] && echo "DEBUG: use_item_help=$use_item_help" >&2
+			debug_log "dialog_menu(read): options array has ${#options[@]} elements"
+			debug_log "dialog_menu(read): use_item_help=$use_item_help"
 
 			if $use_no_items; then
 				# Simple list without descriptions
@@ -664,12 +664,16 @@ dialog_menu() {
 					((i++))
 				done
 			elif $use_item_help; then
-				# Triplets of tag, item, and help text
+				# Triplets of tag, item, and help text. Only print tag +
+				# item; the help text is meant for F1/hover in dialog and
+				# would just produce noisy three-segment lines like
+				#   "1. CINM01 - Install Cinnamon - Install the Cinnamon desktop environment"
+				# in this read-mode fallback.
 				local i=1
 				for ((j=0; j<${#options[@]}; j+=3)); do
 					# Remove "  -  " prefix from description for cleaner display
 					local desc="${options[j+1]#\  -\  }"
-					echo "$i. ${options[j]} - $desc - ${options[j+2]}" >&2
+					echo "$i. ${options[j]} - $desc" >&2
 					((i++))
 				done
 			else
@@ -928,7 +932,7 @@ show_module_help() {
 		# Check if module has custom description for this command
 		local custom_desc="${module_options["${module_prefix},help_${cmd}"]}"
 		if [[ -n "$custom_desc" ]]; then
-			help_text+="  $cmd  - $custom_desc\n"
+			help_text+="$(printf "  %-9s- %s" "$cmd" "$custom_desc")\n"
 			continue
 		fi
 

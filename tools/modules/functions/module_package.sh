@@ -13,7 +13,7 @@ module_options+=(
 # Wrapper for apt operations with progress display
 # Replaces debconf-apt-progress with dialog_gauge UI
 # Usage: apt_operation_progress <operation> [apt_args...]
-# Operations: update, upgrade, full-upgrade, install, remove, fix-broken
+# Operations: update, upgrade, full-upgrade, install, remove, fix-broken, clean
 apt_operation_progress() {
 	local operation="$1"
 	shift
@@ -41,6 +41,9 @@ apt_operation_progress() {
 		fix-broken)
 			title="Fix Broken Packages"
 			;;
+		clean)
+			title="Clean Package Cache"
+			;;
 		*)
 			title="APT Operation"
 			;;
@@ -49,11 +52,11 @@ apt_operation_progress() {
 	if [[ "$DIALOG" == "read" ]]; then
 		# For read mode, just run without progress
 		if [[ "$operation" == "fix-broken" ]]; then
-			apt-get -y --fix-broken install "$@" 2>&1 | tee "$error_file"
+			DEBIAN_FRONTEND=noninteractive apt-get -y --fix-broken install "$@" 2>&1 | tee "$error_file"
 		elif [[ "$operation" == "autopurge" ]]; then
-			apt-get -y autopurge "$@" 2>&1 | tee "$error_file"
+			DEBIAN_FRONTEND=noninteractive apt-get -y autopurge "$@" 2>&1 | tee "$error_file"
 		else
-			apt-get -y "$operation" "$@" 2>&1 | tee "$error_file"
+			DEBIAN_FRONTEND=noninteractive apt-get -y "$operation" "$@" 2>&1 | tee "$error_file"
 		fi
 		exit_code=${PIPESTATUS[0]}
 	else
@@ -147,14 +150,61 @@ module_options+=(
 
 pkg_install()
 {
+	# Extract only package names from args (skip apt options)
+	local pkg_names=()
+	local skip_next=false
+	for arg in "$@"; do
+		if $skip_next; then skip_next=false; continue; fi
+		case "$arg" in
+			-o) skip_next=true; continue ;;
+			-*) continue ;;
+		esac
+		pkg_names+=("$arg")
+	done
+
+	# Dry-run to capture the list of new packages apt will install
+	local dry_run_output
+	dry_run_output=$(apt-get -s -y install "${pkg_names[@]}" 2>&1)
+	debug_log "pkg_install: dry-run for ${#pkg_names[@]} packages"
+	local new_packages=()
+	local capture=false
+	while IFS= read -r line; do
+		if [[ "$line" == "The following NEW packages will be installed:" ]]; then
+			capture=true
+			debug_log "pkg_install: found: $line"
+			continue
+		fi
+		# Stop capturing when we hit any other section header
+		if [[ "$line" == "The following additional packages will be installed:" ]] || \
+		[[ "$line" == "The following packages will be upgraded:" ]] || \
+		[[ "$line" == "The following packages will be REMOVED:" ]]; then
+			capture=false
+			continue
+		fi
+		if $capture; then
+			if [[ "$line" =~ ^[[:space:]] ]]; then
+				new_packages+=($line)
+			else
+				capture=false
+			fi
+		fi
+	done <<< "$dry_run_output"
+	debug_log "pkg_install: apt dry-run reports ${#new_packages[@]} new packages"
+
 	local exit_code
 	apt_operation_progress install "$@"
 	exit_code=$?
 
 	if [[ $exit_code == 100 ]]; then
-		dpkg --configure -a
+		DEBIAN_FRONTEND=noninteractive dpkg --configure -a
 		apt_operation_progress install "$@"
 		exit_code=$?
+	fi
+
+	# Track newly installed packages
+	if [[ $exit_code -eq 0 ]]; then
+		ACTUALLY_INSTALLED+=("${new_packages[@]}")
+		debug_log "pkg_install: ACTUALLY_INSTALLED now has ${#ACTUALLY_INSTALLED[@]} entries"
 	fi
 
 	return $exit_code
@@ -175,6 +225,19 @@ pkg_installed()
 }
 
 module_options+=(
+	["pkg_clean,author"]="@igorpecovnik"
+	["pkg_clean,desc"]="Clear apt's downloaded .deb cache (apt-get clean)"
+	["pkg_clean,example"]="pkg_clean"
+	["pkg_clean,feature"]="pkg_clean"
+	["pkg_clean,status"]="Interface"
+)
+
+pkg_clean()
+{
+	apt_operation_progress clean "$@"
+}
+
+module_options+=(
 	["pkg_remove,author"]="@dimitry-ishenko"
 	["pkg_remove,desc"]="Remove package"
 	["pkg_remove,example"]="pkg_remove nmap"
@@ -189,7 +252,7 @@ pkg_remove()
 	exit_code=$?
 
 	if [[ $exit_code == 100 ]]; then
-		dpkg --configure -a
+		DEBIAN_FRONTEND=noninteractive dpkg --configure -a
 		apt_operation_progress autopurge "$@"
 		exit_code=$?
 	fi

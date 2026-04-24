@@ -6,7 +6,44 @@ unset UXMODE
 # allows CTRL c to exit
 trap "exit" INT TERM
 
-[[ $EUID != 0 ]] && exec sudo "$0" "$@"
+# --debug[=level|=path|=level:path]: turn on script-wide debug logging
+# Examples:
+#   armbian-config --debug              # DEBUG=1, default log file
+#   armbian-config --debug=2             # DEBUG=2 (also captures set -x)
+#   armbian-config --debug=/tmp/my.log   # DEBUG=1, custom log file
+#   armbian-config --debug=2:/tmp/my.log # both
+# Strips the flag out of "$@" before the rest of the script sees it.
+_parse_debug_flag() {
+	local arg new_args=()
+	for arg in "$@"; do
+		case "$arg" in
+			--debug)
+				DEBUG=1
+				;;
+			--debug=*)
+				local v="${arg#--debug=}"
+				if [[ "$v" == *:* ]]; then
+					DEBUG="${v%%:*}"
+					DEBUG_LOG="${v#*:}"
+				elif [[ "$v" =~ ^[0-9]+$ ]]; then
+					DEBUG="$v"
+				else
+					DEBUG=1
+					DEBUG_LOG="$v"
+				fi
+				;;
+			*)
+				new_args+=("$arg")
+				;;
+		esac
+	done
+	export DEBUG DEBUG_LOG
+	_debug_argv=("${new_args[@]}")
+}
+_parse_debug_flag "$@"
+set -- "${_debug_argv[@]}"
+
+[[ $EUID != 0 ]] && exec sudo --preserve-env=DEBUG,DEBUG_LOG "$0" "$@"
 #
 # Get the script directory
 script_dir="$(dirname "$0")"
@@ -15,6 +52,11 @@ declare -A module_options
 
 # Load the initialize modules
 source "$script_dir/../lib/armbian-config/config.initialize.sh"
+
+# Open the debug log file up-front so the session header lands before any
+# checkpoint/debug_log output. No-op when DEBUG is unset.
+_debug_log_init
+debug_log "armbian-config invoked: $0 $*"
 
 # Start loading messages
 checkpoint reset
@@ -40,6 +82,16 @@ lib_dir="$script_dir/../lib/armbian-config"
 doc_dir="$script_dir/../share/doc/armbian-config"
 json_file="$lib_dir/config.jobs.json"
 
+# Desktop module resources (yaml definitions, parser, branding, greeters, skel, postinst).
+# In a source checkout these live under tools/; the .deb installs them under
+# /usr/share/armbian-config/desktops/ (see debian.conf).
+if [[ -d "$script_dir/../tools/modules/desktops" ]]; then
+	desktops_dir="$script_dir/../tools/modules/desktops"
+else
+	desktops_dir="/usr/share/armbian-config/desktops"
+fi
+export desktops_dir
+
 #
 # Load The Bash procedure Objects
 json_data=$(<"$json_file")
@@ -50,8 +102,8 @@ json_data=$(<"$json_file")
 source "$lib_dir/config.functions.sh"
 set_runtime_variables
 checkpoint mark "Loaded Runtime variables..."
-# checks for supported os
-check_distro_status
+# checks for supported os (disabled for now)
+#check_distro_status
 checkpoint mark "Check distro"
 
 checkpoint mark "Loaded Dialog..."
@@ -59,6 +111,8 @@ source "$lib_dir/config.docs.sh"
 checkpoint mark "Loaded Docs..."
 source "$lib_dir/config.system.sh"
 checkpoint mark "Loaded System helpers..."
+source "$lib_dir/config.desktops.sh"
+checkpoint mark "Loaded Desktop helpers..."
 source "$lib_dir/config.network.sh"
 checkpoint mark "Loaded Network helpers..."
 source "$lib_dir/config.software.sh"
@@ -86,11 +140,18 @@ case "$1" in
      --cmd  [option]     Run a command from the menu (simple)
      --api  [option]     Run a helper command        (advanced)
      --doc               Generate the README.md file
+     --debug[=spec]      Enable debug logging to a file.
+                         spec is one of: <level> (1 or 2),
+                         <path>, or <level>:<path>.
+                         Default file: /var/log/armbian-config.log
+                         Level 2 also captures set -x via BASH_XTRACEFD.
 
      Examples:
      armbian-config --help [cmd||System||Software||Network||Localisation]
      armbian-config --cmd help
      armbian-config --api help
+     armbian-config --debug --cmd help
+     armbian-config --debug=2:/tmp/ac.log
 "
         fi
     ;;
@@ -124,7 +185,13 @@ case "$1" in
                 fn=$(sanitize "$2") || die
                 shift 2
                 "$fn" "$@"
+                # Preserve the API function's exit status so callers (CI
+                # tests, scripts with `set -e`) see the real result. Without
+                # this, the trailing `checkpoint total` at EOF can mask a
+                # non-zero rc and every --api call ends up looking successful.
+                _api_rc=$?
                 checkpoint debug "Finished --api call"
+                (exit $_api_rc)
             ;;
         esac
     ;;

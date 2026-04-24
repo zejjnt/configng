@@ -1,0 +1,325 @@
+name: common
+description: "Packages installed for every desktop, in tiers"
+
+# Tier model
+# ----------
+# Every desktop install is run at one of three tiers:
+#
+#   minimal — DE + display manager + base utilities. No browser, no
+#             office, no text editor beyond what the DE itself ships.
+#             Around 500 MB on a fresh install.
+#   mid     — minimal + browser + everyday user-facing tools (text
+#             editor, calculator, image/PDF viewer, media player,
+#             archive tool, torrent client). Around 1 GB.
+#   full    — mid + office suite + creative tools (LibreOffice,
+#             GIMP, Inkscape, Thunderbird, Audacity). Around 2.5 GB.
+#
+# Tiers are additive: installing 'full' implies 'mid' implies
+# 'minimal'. The parser walks them in order and accumulates packages.
+#
+# Per-DE YAMLs can add packages to a tier with `tiers.<tier>.packages`,
+# or remove ones inherited from common with `tiers.<tier>.packages_remove`.
+# See e.g. kde-plasma.yaml which swaps gnome-text-editor for kate at
+# the mid tier and libreoffice-gtk3 for libreoffice-kde at full.
+#
+# Per-DE per-tier per-arch overrides live under `tier_overrides:` in
+# the per-DE YAML. Use those to drop packages that don't exist on a
+# particular arch (e.g. blender/inkscape on armhf, libreoffice on
+# riscv64).
+
+tiers:
+  minimal:
+    packages:
+      - adwaita-icon-theme
+      - cups
+      - dconf-cli
+      - profile-sync-daemon
+      - terminator
+      - upower
+      # Networking stack. Armbian minimal images ship with netplan
+      # driving systemd-networkd; a desktop install flips the netplan
+      # renderer to NetworkManager (see _module_desktops_configure_networking
+      # in module_desktops.sh). The daemon and netplan itself are
+      # required system-wide; per-DE applets (network-manager-gnome
+      # for Xfce/MATE/Cinnamon/i3/etc, plasma-nm for KDE) stay in each
+      # DE's own YAML so the Wayland-native GNOME Shell doesn't pull
+      # in the GTK applet for nothing.
+      - network-manager
+      - netplan.io
+
+  mid:
+    packages:
+      - browser              # virtual — resolved per-arch from `browser:` below
+      - gnome-text-editor    # text editor (modern GTK4 successor to gedit)
+      - gnome-calculator
+      - loupe                # GTK4 image viewer; on bookworm fall back via release block
+      - vlc                  # media player
+      - file-roller          # archive manager
+      - transmission-gtk     # torrent client
+      - armbian-imager       # SD-card image flasher (from apt.armbian.com)
+      - cups-pk-helper       # polkit bridge — lets GNOME/KDE printer panels
+                             # unlock cups config without sudo. Other DEs
+                             # get this transitively via system-config-printer.
+      # 3D / GPU runtime + diagnostics. Previously installed by
+      # armbian/build's extensions/mesa-vpu.sh on desktop builds;
+      # moved here so every mid-tier desktop install (image-built
+      # or runtime armbian-config invocation) gets the same set.
+      # Mesa runtime + Vulkan drivers give GL/Vulkan-capable DEs a
+      # hardware path instead of llvmpipe; mesa-utils + vulkan-tools
+      # are the canonical probing surface; glmark2-* are the
+      # GL/GLES bench binaries (no plain 'glmark2' / 'glmark2-es2'
+      # package exists — Debian only ships the window-system-
+      # specific variants).
+      # Verified present on Debian bookworm/trixie/forky/sid and
+      # Ubuntu jammy/noble/resolute across amd64/arm64/armhf/riscv64.
+      - libgl1-mesa-dri       # Mesa DRI drivers (OpenGL hardware path)
+      - libglx-mesa0          # Mesa GLX front-end for X11
+      - mesa-utils            # glxinfo, glxgears, es2_info, etc.
+      - mesa-vulkan-drivers   # Vulkan ICD drivers (Panfrost, Lima, Radeon, Intel, …)
+      - vulkan-tools          # vulkaninfo, vkcube
+      - glmark2-wayland       # GL benchmark — Wayland backend
+      - glmark2-es2-wayland   # GLES2 benchmark — Wayland backend
+      - glmark2-x11           # GL benchmark — X11 backend
+      - glmark2-es2-x11       # GLES2 benchmark — X11 backend
+
+  full:
+    packages:
+      - libreoffice
+      - libreoffice-gtk3
+      - gimp
+      - inkscape
+      - thunderbird
+      - audacity
+      - code                  # vscode (from apt.armbian.com)
+
+# Browser substitution table for the literal `browser` token in any
+# tier. The parser replaces `browser` with the right package per
+# (release, arch).
+#
+# Lookup order:
+#   1. browser.<release>.<arch>  — most specific
+#   2. browser.<arch>             — per-arch fallback (when a release
+#                                   has no override)
+#   3. drop the token entirely (silent — install proceeds without
+#                               a browser rather than failing on a
+#                               literal 'browser' apt name)
+#
+# The per-release layer is required because the same arch can need
+# a different package across releases:
+#
+#   - Debian has 'firefox-esr' but NO 'firefox' package.
+#   - Ubuntu's 'chromium' .deb is a snap-shim wrapper that pulls in
+#     snapd. Armbian doesn't ship snapd, so the shim is broken at
+#     runtime — apt.armbian.com hosts real .debs (chromium, firefox,
+#     google-chrome-stable) used in this map instead.
+#   - amd64 always gets google-chrome-stable (Google publishes no
+#     arm/riscv builds, so this is amd64-only).
+#   - 'chromium' isn't built for riscv64 in either Debian or Ubuntu.
+#
+# Verified against Debian bookworm/trixie, Ubuntu jammy/noble/resolute,
+# and apt.armbian.com as of 2026-04. Update this map when new releases
+# ship or when an arch dependency changes.
+browser:
+  bookworm:
+    amd64:   google-chrome-stable
+    arm64:   chromium
+    armhf:   chromium
+    # bookworm has no riscv64 port — no entry needed
+  trixie:
+    amd64:   google-chrome-stable
+    arm64:   chromium
+    armhf:   chromium
+    riscv64: firefox-esr     # 'firefox' does not exist in Debian
+  noble:
+    amd64:   google-chrome-stable
+    arm64:   chromium        # apt.armbian.com real .deb (Ubuntu's is snap-shim)
+    armhf:   chromium
+    # firefox / firefox-esr are not in the Ubuntu noble archive for
+    # riscv64 (Mozilla doesn't publish riscv64 binaries, and firefox-esr
+    # is a Debian-only package name). Fall back to GNOME Web (native
+    # GTK, no snap, small footprint, built for every Ubuntu arch).
+    riscv64: epiphany-browser
+  jammy:
+    # Ubuntu 22.04 LTS — chromium / firefox apt names on Ubuntu are
+    # snap-shims; apt.armbian.com hosts real .debs of the same name.
+    amd64:   google-chrome-stable
+    arm64:   chromium
+    armhf:   chromium
+    riscv64: epiphany-browser   # same rationale as noble
+  resolute:
+    # Ubuntu 26.04 LTS
+    amd64:   google-chrome-stable
+    arm64:   chromium
+    armhf:   chromium
+    riscv64: epiphany-browser   # same rationale as noble
+  forky:
+    # Debian 14 — same rules as trixie.
+    amd64:   google-chrome-stable
+    arm64:   chromium
+    armhf:   chromium
+    riscv64: firefox-esr     # 'firefox' does not exist in Debian
+  sid:
+    # Debian unstable — same rules as trixie/forky.
+    amd64:   google-chrome-stable
+    arm64:   chromium
+    armhf:   chromium
+    riscv64: firefox-esr     # 'firefox' does not exist in Debian
+    loong64: firefox-esr     # chromium not yet built for loong64
+
+# Per-tier holes that exist in the upstream repos and need to be
+# stripped before they reach apt. Common.yaml carries the holes that
+# apply to every desktop; per-DE YAMLs can add their own.
+#
+# Layered:
+#   tier_overrides.<tier>.architectures.<arch>.packages_remove
+#       — apply on this arch in any release
+#   tier_overrides.<tier>.releases.<release>.architectures.<arch>.packages_remove
+#       — apply only on this release+arch combo (preferred for
+#         per-release transient holes like 'loupe' missing in bookworm)
+#
+# Verified against packages.debian.org (madison) and
+# packages.ubuntu.com / launchpad as of 2026-04. Update when releases
+# move forward or when arch dependencies change.
+tier_overrides:
+  minimal:
+    releases:
+      bookworm:
+        # fonts-ubuntu is an Ubuntu-only package; Debian doesn't
+        # ship it. Strip it on every Debian release. The Ubuntu
+        # branding font is preserved on Ubuntu installs and the
+        # rest of the GTK font stack (fonts-noto, fonts-dejavu,
+        # whatever the DE pulls in transitively) takes over on
+        # Debian.
+        architectures:
+          amd64:  { packages_remove: [fonts-ubuntu] }
+          arm64:  { packages_remove: [fonts-ubuntu] }
+          armhf:  { packages_remove: [fonts-ubuntu] }
+      trixie:
+        architectures:
+          amd64:    { packages_remove: [fonts-ubuntu] }
+          arm64:    { packages_remove: [fonts-ubuntu] }
+          armhf:    { packages_remove: [fonts-ubuntu] }
+          riscv64:  { packages_remove: [fonts-ubuntu] }
+      forky:
+        # fonts-ubuntu: Ubuntu-only.
+        # printer-driver-all: obsoleted in Debian 14, has no installation
+        #   candidate anymore ('referred to by another package' state).
+        # gtk2-engines-murrine: GTK2 is being phased out in Debian 14;
+        #   the murrine engine was removed from the archive.
+        architectures:
+          amd64:    { packages_remove: [fonts-ubuntu, printer-driver-all, gtk2-engines-murrine] }
+          arm64:    { packages_remove: [fonts-ubuntu, printer-driver-all, gtk2-engines-murrine] }
+          armhf:    { packages_remove: [fonts-ubuntu, printer-driver-all, gtk2-engines-murrine] }
+          riscv64:  { packages_remove: [fonts-ubuntu, printer-driver-all, gtk2-engines-murrine] }
+      sid:
+        # fonts-ubuntu is Ubuntu-only; Debian sid doesn't ship it.
+        # Includes loong64, which is a sid-only Armbian arch.
+        architectures:
+          amd64:    { packages_remove: [fonts-ubuntu] }
+          arm64:    { packages_remove: [fonts-ubuntu] }
+          armhf:    { packages_remove: [fonts-ubuntu] }
+          riscv64:  { packages_remove: [fonts-ubuntu] }
+          loong64:  { packages_remove: [fonts-ubuntu] }
+  mid:
+    # armbian-imager (apt.armbian.com) is only published for amd64
+    # and arm64 — strip it on every other arch. Arch-wide so the
+    # exclusion applies across all releases.
+    architectures:
+      armhf:
+        packages_remove: [armbian-imager]
+      riscv64:
+        packages_remove: [armbian-imager]
+      loong64:
+        packages_remove: [armbian-imager]
+    releases:
+      bookworm:
+        # loupe is GNOME 46+; bookworm shipped with GNOME 43 era and
+        # has no loupe package on any arch.
+        architectures:
+          amd64:  { packages_remove: [loupe] }
+          arm64:  { packages_remove: [loupe] }
+          armhf:  { packages_remove: [loupe] }
+      jammy:
+        # loupe was introduced with GNOME 44/45; Ubuntu 22.04 (jammy)
+        # shipped GNOME 42 and has no loupe package on any arch.
+        architectures:
+          amd64:    { packages_remove: [loupe] }
+          arm64:    { packages_remove: [loupe] }
+          armhf:    { packages_remove: [loupe] }
+          riscv64:  { packages_remove: [loupe] }
+      resolute:
+        # loupe/armhf still missing — no GNOME armhf build.
+        architectures:
+          armhf:  { packages_remove: [loupe] }
+  full:
+    # `code` (Microsoft VSCode) is published on apt.armbian.com for
+    # amd64/arm64/armhf only (no riscv64 upstream build).
+    #   - riscv64: no binary at all → strip arch-wide.
+    #   - armhf:   the .deb on apt.armbian.com still links against the
+    #              pre-t64 library names (libasound2, libatk1.0-0,
+    #              libgtk-3-0, libglib2.0-0, …). Those names went away
+    #              on every release that completed the 64-bit time_t
+    #              transition: Debian trixie+ and Ubuntu noble+. The
+    #              amd64/arm64 builds from apt.armbian.com were
+    #              rebuilt against the new names, but the armhf one
+    #              hasn't — so the install hard-fails with "unable to
+    #              correct problems, you have held broken packages".
+    #              Until/unless the armhf .deb is rebuilt, strip it
+    #              on every armhf target too. Pre-t64 releases
+    #              (bookworm, jammy) still work, but we don't
+    #              currently test armhf on those, so arch-wide is
+    #              simpler than a per-release allow-list.
+    architectures:
+      riscv64:
+        packages_remove: [code]
+      armhf:
+        packages_remove: [code]
+    releases:
+      bookworm:
+        # thunderbird is missing on bookworm/armhf.
+        architectures:
+          armhf:  { packages_remove: [thunderbird] }
+      trixie:
+        # thunderbird is missing on trixie/armhf.
+        architectures:
+          armhf:  { packages_remove: [thunderbird] }
+      noble:
+        # Ubuntu's thunderbird .deb on amd64/arm64 is a snap-shim
+        # wrapper, but apt.armbian.com hosts a real thunderbird .deb
+        # for those arches that wins by version. armhf and riscv64
+        # have no upstream Ubuntu deb at all and we don't (yet) ship
+        # them via apt.armbian.com — strip on those arches only.
+        architectures:
+          armhf:    { packages_remove: [thunderbird] }
+          riscv64:  { packages_remove: [thunderbird] }
+      jammy:
+        # libreoffice + libreoffice-gtk3 were never built for
+        # jammy/riscv64 — Ubuntu 22.04's riscv64 port in
+        # ports.ubuntu.com/ubuntu-ports/dists/jammy/ has no
+        # libreoffice package in any component (main / universe /
+        # restricted / multiverse). Other jammy arches (amd64, arm64,
+        # armhf) ship it fine. noble/resolute riscv64 also ship it —
+        # this is a jammy-only hole. Strip on jammy/riscv64 so the
+        # full-tier install doesn't fail with 'E: Unable to locate
+        # package libreoffice'.
+        architectures:
+          armhf:    { packages_remove: [thunderbird] }
+          riscv64:  { packages_remove: [thunderbird, libreoffice, libreoffice-gtk3] }
+      resolute:
+        architectures:
+          armhf:    { packages_remove: [thunderbird] }
+          riscv64:  { packages_remove: [thunderbird] }
+      forky:
+        # thunderbird is missing on forky/armhf — carry the trixie gap
+        # forward; other arches are fine.
+        architectures:
+          armhf:    { packages_remove: [thunderbird] }
+      sid:
+        # thunderbird is missing on sid/armhf — same gap as trixie/forky.
+        # `code` is not tracked for sid in apt.armbian.com (Debian unstable;
+        # vendor debs may break) — strip on amd64/arm64 here. armhf and
+        # riscv64 already get `code` stripped arch-wide above.
+        architectures:
+          amd64:    { packages_remove: [code] }
+          arm64:    { packages_remove: [code] }
+          armhf:    { packages_remove: [thunderbird] }

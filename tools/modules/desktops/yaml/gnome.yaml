@@ -1,0 +1,157 @@
+name: gnome
+description: "GNOME - modern, full-featured desktop"
+display_manager: gdm3
+status: supported
+
+# Minimal tier: GNOME Shell + control center + the daemons that the
+# Quick Settings tiles depend on. Mid and full tier additions are
+# mostly inherited from common.yaml — see kde-plasma.yaml for the
+# pattern of overriding common-tier entries per DE. The only thing
+# GNOME drops from the common mid set is `transmission-gtk`,
+# because GNOME ships its own torrent integration via the Files
+# / Downloads UI and a stand-alone GTK torrent client is redundant.
+tiers:
+  minimal:
+    packages:
+      - gnome-session
+      - gnome-shell
+      - gnome-control-center
+      - gnome-system-monitor
+      - gnome-disk-utility
+      - gnome-shell-extension-appindicator
+      - gdm3
+      - nautilus
+      # Printing: cups is in common.yaml as the spooler, but without
+      # drivers the GNOME Settings → Printers panel can't add anything.
+      # printer-driver-all pulls in HPLIP/Gutenprint/Foomatic/Splix.
+      # gnome-control-center already provides the printer-add wizard,
+      # so no system-config-printer is needed.
+      - printer-driver-all
+      # Bluetooth: bluez is the daemon, gnome-bluetooth-sendto pulls
+      # libgnome-bluetooth-3.0 which gnome-shell dlopens to render
+      # the Bluetooth tile in the Quick Settings popover.
+      - bluez
+      - gnome-bluetooth-sendto
+      # Networking: gnome-shell renders the Wi-Fi/Wired tile only when
+      # the NetworkManager daemon is present. network-manager-gnome
+      # provides the legacy nm-applet GUI and is unrelated.
+      - network-manager
+      - network-manager-gnome
+      # Power profiles tile in Quick Settings — gnome-control-center
+      # only Recommends this, so under --no-install-recommends it
+      # doesn't get pulled in.
+      - power-profiles-daemon
+      - dbus-x11
+      - gvfs-backends
+      - lm-sensors
+      - pulseaudio
+      - pulseaudio-module-bluetooth
+      - xdg-user-dirs
+      - xdg-user-dirs-gtk
+      - xserver-xorg
+      - xwayland
+      - zenity
+
+  mid:
+    # GNOME has its own download/torrent integration; transmission-gtk
+    # is redundant on GNOME.
+    packages_remove:
+      - transmission-gtk
+
+releases:
+  bookworm:
+    architectures: [arm64, amd64]
+    packages:
+      - accountsservice
+      - libu2f-udev
+
+  trixie:
+    architectures: [arm64, amd64]
+    packages:
+      - accountsservice
+      - libu2f-udev
+      - pipewire-audio
+      - pipewire-pulse
+      - wireplumber
+    packages_remove:
+      - pulseaudio
+      - pulseaudio-module-bluetooth
+
+  noble:
+    architectures: [arm64, amd64]
+    packages:
+      - polkitd
+      - pkexec
+      - libu2f-udev
+    packages_uninstall:
+      - ubuntu-session
+
+  forky:
+    # Debian 14 — pipewire replaces pulseaudio (same as trixie).
+    architectures: [arm64, amd64]
+    packages:
+      - accountsservice
+      - pipewire-audio
+      - pipewire-pulse
+      - wireplumber
+    packages_remove:
+      - pulseaudio
+      - pulseaudio-module-bluetooth
+
+  sid:
+    # Debian unstable — pipewire replaces pulseaudio (same as trixie/forky).
+    # loong64 is intentionally dropped: GNOME on loong64 isn't viable
+    # for Armbian right now. The sid/loong64 port frequently skews
+    # behind the main sid archive (e.g. gnupg2 gets bumped before
+    # dirmngr is rebuilt for loong64), which breaks rootfs bootstrap
+    # before module_desktops even runs. Keeping a lean CLI-only
+    # loong64 story until the port stabilises.
+    architectures: [arm64, amd64]
+    packages:
+      - accountsservice
+      - libu2f-udev
+      - pipewire-audio
+      - pipewire-pulse
+      - wireplumber
+    packages_remove:
+      - pulseaudio
+      - pulseaudio-module-bluetooth
+
+  # ── Ubuntu 22.04 LTS / 25.10 / 26.04 ──────────────────────────────
+
+  jammy:
+    # Ubuntu 22.04 LTS — polkit split available via SRU;
+    # pulseaudio remains default on jammy.
+    #
+    # gnome-bluetooth-sendto doesn't exist on jammy: GNOME 42 still
+    # shipped gnome-bluetooth as a single package containing the
+    # libgnome-bluetooth-3.0 library, the control-center Bluetooth
+    # panel, AND the sendto helper. The split into
+    # gnome-bluetooth + gnome-bluetooth-sendto +
+    # libgnome-bluetooth-3.0 landed with GNOME 43 (bookworm /
+    # noble+). Strip the split-out name here and pull in the
+    # monolithic package instead so the Quick Settings Bluetooth
+    # tile still has libgnome-bluetooth-3.0 to dlopen.
+    architectures: [arm64, amd64]
+    packages:
+      - polkitd
+      - pkexec
+      - libu2f-udev
+      - gnome-bluetooth
+    packages_remove:
+      - gnome-bluetooth-sendto
+    packages_uninstall:
+      - ubuntu-session
+
+  resolute:
+    # Ubuntu 26.04 LTS — same as questing; pavumeter still absent.
+    architectures: [arm64, amd64]
+    packages:
+      - polkitd
+      - pkexec
+      - libfido2-1
+    packages_remove:
+      # pavumeter remains absent from the Ubuntu archive (dropped in plucky).
+      - pavumeter
+    packages_uninstall:
+      - ubuntu-session

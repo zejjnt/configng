@@ -1,0 +1,1 @@
+KDE Plasma is a feature-rich desktop environment with extensive customization options. It provides a familiar taskbar and start menu layout with modern effects, widgets, and a powerful system settings application.

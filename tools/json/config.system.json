@@ -54,12 +54,26 @@
                             "short": "Device Tree Overlays",
                             "module": "module_generic",
                             "command": [
-                                "manage_dtoverlays"
+                                "module_devicetree_overlays edit"
                             ],
                             "status": "Stable",
                             "author": "@viraniac @igorpecovnik",
                             "condition": "[ -d /boot/dtb/ ] && [ -f /boot/armbianEnv.txt ]",
                             "help": "Device Tree Overlays allow you to dynamically modify the Linux device tree at runtime, without."
+                        },
+                        {
+                            "id": "DTE001",
+                            "description": "Edit device tree",
+                            "short": "Device Tree Editor",
+                            "module": "module_devicetree_edit",
+                            "about": "This will allow you to decompile, edit, and recompile device tree blobs. Incorrect changes can prevent the system from booting!",
+                            "command": [
+                                "module_devicetree_edit edit"
+                            ],
+                            "status": "Preview",
+                            "author": "@igorpecovnik",
+                            "condition": "[ -d /boot/dtb/ ]",
+                            "help": "Edit device tree blobs by decompiling DTB to DTS source, editing with a text editor, and recompiling. Creates automatic backups before any modification."
                         },
                         {
                             "id": "ODR001",
@@ -90,6 +104,829 @@
                         }
                     ],
                     "help": "Alternative kernels, device tree overlays, and boot configuration"
+                },
+                {
+                    "id": "Desktops",
+                    "description": "Install, remove and configure desktop environments",
+                    "short": "Desktop",
+                    "sub": [
+                        {
+                            "id": "CINM01",
+                            "description": "Install Cinnamon (minimal)",
+                            "short": "Cinnamon",
+                            "command": [
+                                "module_desktops install de=cinnamon tier=minimal"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported cinnamon",
+                            "help": "Install Cinnamon: desktop, display manager, base utilities. ~500 MB."
+                        },
+                        {
+                            "id": "CINM05",
+                            "description": "Install Cinnamon (mid)",
+                            "short": "Cinnamon mid",
+                            "command": [
+                                "module_desktops install de=cinnamon tier=mid"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported cinnamon",
+                            "help": "Install Cinnamon: minimal + browser + everyday tools. ~1 GB."
+                        },
+                        {
+                            "id": "CINM06",
+                            "description": "Install Cinnamon (full)",
+                            "short": "Cinnamon full",
+                            "command": [
+                                "module_desktops install de=cinnamon tier=full"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported cinnamon",
+                            "help": "Install Cinnamon: mid + LibreOffice, GIMP, Inkscape, Thunderbird, Audacity. ~2.5 GB."
+                        },
+                        {
+                            "id": "GNME01",
+                            "description": "Install GNOME (minimal)",
+                            "short": "GNOME",
+                            "command": [
+                                "module_desktops install de=gnome tier=minimal"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported gnome",
+                            "help": "Install GNOME: desktop, display manager, base utilities. ~500 MB."
+                        },
+                        {
+                            "id": "GNME05",
+                            "description": "Install GNOME (mid)",
+                            "short": "GNOME mid",
+                            "command": [
+                                "module_desktops install de=gnome tier=mid"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported gnome",
+                            "help": "Install GNOME: minimal + browser + everyday tools. ~1 GB."
+                        },
+                        {
+                            "id": "GNME06",
+                            "description": "Install GNOME (full)",
+                            "short": "GNOME full",
+                            "command": [
+                                "module_desktops install de=gnome tier=full"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported gnome",
+                            "help": "Install GNOME: mid + LibreOffice, GIMP, Inkscape, Thunderbird, Audacity. ~2.5 GB."
+                        },
+                        {
+                            "id": "MATE01",
+                            "description": "Install MATE (minimal)",
+                            "short": "MATE",
+                            "command": [
+                                "module_desktops install de=mate tier=minimal"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported mate",
+                            "help": "Install MATE: desktop, display manager, base utilities. ~500 MB."
+                        },
+                        {
+                            "id": "MATE05",
+                            "description": "Install MATE (mid)",
+                            "short": "MATE mid",
+                            "command": [
+                                "module_desktops install de=mate tier=mid"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported mate",
+                            "help": "Install MATE: minimal + browser + everyday tools. ~1 GB."
+                        },
+                        {
+                            "id": "MATE06",
+                            "description": "Install MATE (full)",
+                            "short": "MATE full",
+                            "command": [
+                                "module_desktops install de=mate tier=full"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported mate",
+                            "help": "Install MATE: mid + LibreOffice, GIMP, Inkscape, Thunderbird, Audacity. ~2.5 GB."
+                        },
+                        {
+                            "id": "I3WM01",
+                            "description": "Install i3 (minimal)",
+                            "short": "i3",
+                            "command": [
+                                "module_desktops install de=i3-wm tier=minimal"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported i3-wm",
+                            "help": "Install i3: tiling window manager, display manager, base utilities. ~400 MB."
+                        },
+                        {
+                            "id": "I3WM05",
+                            "description": "Install i3 (mid)",
+                            "short": "i3 mid",
+                            "command": [
+                                "module_desktops install de=i3-wm tier=mid"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported i3-wm",
+                            "help": "Install i3: minimal + browser + everyday tools. ~1 GB."
+                        },
+                        {
+                            "id": "I3WM06",
+                            "description": "Install i3 (full)",
+                            "short": "i3 full",
+                            "command": [
+                                "module_desktops install de=i3-wm tier=full"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported i3-wm",
+                            "help": "Install i3: mid + LibreOffice, GIMP, Inkscape, Thunderbird, Audacity. ~2.5 GB."
+                        },
+                        {
+                            "id": "KDEP01",
+                            "description": "Install KDE Plasma (minimal)",
+                            "short": "KDE Plasma",
+                            "command": [
+                                "module_desktops install de=kde-plasma tier=minimal"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported kde-plasma",
+                            "help": "Install KDE Plasma: desktop, display manager, KDE base apps. ~700 MB."
+                        },
+                        {
+                            "id": "KDEP05",
+                            "description": "Install KDE Plasma (mid)",
+                            "short": "KDE Plasma mid",
+                            "command": [
+                                "module_desktops install de=kde-plasma tier=mid"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported kde-plasma",
+                            "help": "Install KDE Plasma: minimal + browser, kate editor, calculator, vlc. ~1.2 GB."
+                        },
+                        {
+                            "id": "KDEP06",
+                            "description": "Install KDE Plasma (full)",
+                            "short": "KDE Plasma full",
+                            "command": [
+                                "module_desktops install de=kde-plasma tier=full"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported kde-plasma",
+                            "help": "Install KDE Plasma: mid + LibreOffice (KDE), GIMP, Inkscape, Thunderbird, Audacity. ~2.5 GB."
+                        },
+                        {
+                            "id": "KDEN01",
+                            "description": "Install KDE Neon",
+                            "short": "KDE Neon",
+                            "command": [
+                                "module_desktops install de=kde-neon tier=minimal"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported kde-neon",
+                            "help": "Install the KDE Neon desktop environment"
+                        },
+                        {
+                            "id": "BDGE01",
+                            "description": "Install Budgie [CSC]",
+                            "short": "Budgie [CSC]",
+                            "command": [
+                                "module_desktops install de=budgie tier=minimal"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported budgie",
+                            "help": "Install Budgie [community-supported, best-effort]."
+                        },
+                        {
+                            "id": "DEEP01",
+                            "description": "Install Deepin [CSC]",
+                            "short": "Deepin [CSC]",
+                            "command": [
+                                "module_desktops install de=deepin tier=minimal"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported deepin",
+                            "help": "Install Deepin DDE [community-supported, best-effort]."
+                        },
+                        {
+                            "id": "ENLT01",
+                            "description": "Install Enlightenment [CSC]",
+                            "short": "Enlightenment [CSC]",
+                            "command": [
+                                "module_desktops install de=enlightenment tier=minimal"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported enlightenment",
+                            "help": "Install Enlightenment (EFL-based) [community-supported, best-effort]."
+                        },
+                        {
+                            "id": "BIAN01",
+                            "description": "Install Bianbu [CSC]",
+                            "short": "Bianbu [CSC]",
+                            "command": [
+                                "module_desktops install de=bianbu tier=mid"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported bianbu",
+                            "help": "Install Bianbu — SpacemiT K1 RISC-V desktop (mid tier: full DE + standard utilities + K1 camera stack). riscv64 on noble/resolute only; uses SpacemiT's pinned archive (priority >1000 to override distro for K1-specific packages). [community-supported, best-effort]."
+                        },
+                        {
+                            "id": "XFCE01",
+                            "description": "Install XFCE (minimal)",
+                            "short": "XFCE",
+                            "command": [
+                                "module_desktops install de=xfce tier=minimal"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported xfce",
+                            "help": "Install XFCE: desktop, display manager, base utilities. ~500 MB."
+                        },
+                        {
+                            "id": "XFCE05",
+                            "description": "Install XFCE (mid)",
+                            "short": "XFCE mid",
+                            "command": [
+                                "module_desktops install de=xfce tier=mid"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported xfce",
+                            "help": "Install XFCE: minimal + browser + everyday tools (text editor, calculator, image/PDF viewer, media player, archive, torrent). ~1 GB."
+                        },
+                        {
+                            "id": "XFCE06",
+                            "description": "Install XFCE (full)",
+                            "short": "XFCE full",
+                            "command": [
+                                "module_desktops install de=xfce tier=full"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "! module_desktops installed && module_desktop_supported xfce",
+                            "help": "Install XFCE: mid + LibreOffice, GIMP, Inkscape, Thunderbird, Audacity. ~2.5 GB."
+                        },
+                        {
+                            "id": "CINM02",
+                            "description": "Uninstall Cinnamon",
+                            "command": [
+                                "module_desktops remove de=cinnamon"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=cinnamon",
+                            "help": "Uninstall the Cinnamon desktop environment"
+                        },
+                        {
+                            "id": "GNME02",
+                            "description": "Uninstall GNOME",
+                            "command": [
+                                "module_desktops remove de=gnome"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=gnome",
+                            "help": "Uninstall the GNOME desktop environment"
+                        },
+                        {
+                            "id": "MATE02",
+                            "description": "Uninstall MATE",
+                            "command": [
+                                "module_desktops remove de=mate"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=mate",
+                            "help": "Uninstall the MATE desktop environment"
+                        },
+                        {
+                            "id": "I3WM02",
+                            "description": "Uninstall i3",
+                            "command": [
+                                "module_desktops remove de=i3-wm"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=i3-wm",
+                            "help": "Uninstall the i3 desktop environment"
+                        },
+                        {
+                            "id": "KDEP02",
+                            "description": "Uninstall KDE Plasma",
+                            "command": [
+                                "module_desktops remove de=kde-plasma"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=kde-plasma",
+                            "help": "Uninstall the KDE Plasma desktop environment"
+                        },
+                        {
+                            "id": "KDEN02",
+                            "description": "Uninstall KDE Neon",
+                            "command": [
+                                "module_desktops remove de=kde-neon"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=kde-neon",
+                            "help": "Uninstall the KDE Neon desktop environment"
+                        },
+                        {
+                            "id": "BDGE02",
+                            "description": "Uninstall Budgie [CSC]",
+                            "command": [
+                                "module_desktops remove de=budgie"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=budgie",
+                            "help": "Uninstall the Budgie desktop environment"
+                        },
+                        {
+                            "id": "DEEP02",
+                            "description": "Uninstall Deepin [CSC]",
+                            "command": [
+                                "module_desktops remove de=deepin"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=deepin",
+                            "help": "Uninstall the Deepin desktop environment"
+                        },
+                        {
+                            "id": "ENLT02",
+                            "description": "Uninstall Enlightenment [CSC]",
+                            "command": [
+                                "module_desktops remove de=enlightenment"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=enlightenment",
+                            "help": "Uninstall the Enlightenment desktop environment"
+                        },
+                        {
+                            "id": "XFCE02",
+                            "description": "Uninstall XFCE",
+                            "command": [
+                                "module_desktops remove de=xfce"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=xfce",
+                            "help": "Uninstall the XFCE desktop environment"
+                        },
+                        {
+                            "id": "CINM03",
+                            "description": "Enable autologin (Cinnamon)",
+                            "command": [
+                                "module_desktops auto de=cinnamon"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=cinnamon && ! module_desktops login de=cinnamon",
+                            "help": "Enable automatic desktop login for Cinnamon"
+                        },
+                        {
+                            "id": "GNME03",
+                            "description": "Enable autologin (GNOME)",
+                            "command": [
+                                "module_desktops auto de=gnome"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=gnome && ! module_desktops login de=gnome",
+                            "help": "Enable automatic desktop login for GNOME"
+                        },
+                        {
+                            "id": "MATE03",
+                            "description": "Enable autologin (MATE)",
+                            "command": [
+                                "module_desktops auto de=mate"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=mate && ! module_desktops login de=mate",
+                            "help": "Enable automatic desktop login for MATE"
+                        },
+                        {
+                            "id": "I3WM03",
+                            "description": "Enable autologin (i3)",
+                            "command": [
+                                "module_desktops auto de=i3-wm"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=i3-wm && ! module_desktops login de=i3-wm",
+                            "help": "Enable automatic desktop login for i3"
+                        },
+                        {
+                            "id": "KDEP03",
+                            "description": "Enable autologin (KDE Plasma)",
+                            "command": [
+                                "module_desktops auto de=kde-plasma"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=kde-plasma && ! module_desktops login de=kde-plasma",
+                            "help": "Enable automatic desktop login for KDE Plasma"
+                        },
+                        {
+                            "id": "KDEN03",
+                            "description": "Enable autologin (KDE Neon)",
+                            "command": [
+                                "module_desktops auto de=kde-neon"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=kde-neon && ! module_desktops login de=kde-neon",
+                            "help": "Enable automatic desktop login for KDE Neon"
+                        },
+                        {
+                            "id": "BDGE03",
+                            "description": "Enable autologin (Budgie) [CSC]",
+                            "command": [
+                                "module_desktops auto de=budgie"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=budgie && ! module_desktops login de=budgie",
+                            "help": "Enable automatic desktop login for Budgie"
+                        },
+                        {
+                            "id": "DEEP03",
+                            "description": "Enable autologin (Deepin) [CSC]",
+                            "command": [
+                                "module_desktops auto de=deepin"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=deepin && ! module_desktops login de=deepin",
+                            "help": "Enable automatic desktop login for Deepin"
+                        },
+                        {
+                            "id": "ENLT03",
+                            "description": "Enable autologin (Enlightenment) [CSC]",
+                            "command": [
+                                "module_desktops auto de=enlightenment"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=enlightenment && ! module_desktops login de=enlightenment",
+                            "help": "Enable automatic desktop login for Enlightenment"
+                        },
+                        {
+                            "id": "XFCE03",
+                            "description": "Enable autologin (XFCE)",
+                            "command": [
+                                "module_desktops auto de=xfce"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=xfce && ! module_desktops login de=xfce",
+                            "help": "Enable automatic desktop login for XFCE"
+                        },
+                        {
+                            "id": "CINM04",
+                            "description": "Disable autologin (Cinnamon)",
+                            "command": [
+                                "module_desktops manual de=cinnamon"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=cinnamon && module_desktops login de=cinnamon",
+                            "help": "Disable automatic desktop login for Cinnamon"
+                        },
+                        {
+                            "id": "GNME04",
+                            "description": "Disable autologin (GNOME)",
+                            "command": [
+                                "module_desktops manual de=gnome"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=gnome && module_desktops login de=gnome",
+                            "help": "Disable automatic desktop login for GNOME"
+                        },
+                        {
+                            "id": "MATE04",
+                            "description": "Disable autologin (MATE)",
+                            "command": [
+                                "module_desktops manual de=mate"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=mate && module_desktops login de=mate",
+                            "help": "Disable automatic desktop login for MATE"
+                        },
+                        {
+                            "id": "I3WM04",
+                            "description": "Disable autologin (i3)",
+                            "command": [
+                                "module_desktops manual de=i3-wm"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=i3-wm && module_desktops login de=i3-wm",
+                            "help": "Disable automatic desktop login for i3"
+                        },
+                        {
+                            "id": "KDEP04",
+                            "description": "Disable autologin (KDE Plasma)",
+                            "command": [
+                                "module_desktops manual de=kde-plasma"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=kde-plasma && module_desktops login de=kde-plasma",
+                            "help": "Disable automatic desktop login for KDE Plasma"
+                        },
+                        {
+                            "id": "KDEN04",
+                            "description": "Disable autologin (KDE Neon)",
+                            "command": [
+                                "module_desktops manual de=kde-neon"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=kde-neon && module_desktops login de=kde-neon",
+                            "help": "Disable automatic desktop login for KDE Neon"
+                        },
+                        {
+                            "id": "BDGE04",
+                            "description": "Disable autologin (Budgie) [CSC]",
+                            "command": [
+                                "module_desktops manual de=budgie"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=budgie && module_desktops login de=budgie",
+                            "help": "Disable automatic desktop login for Budgie"
+                        },
+                        {
+                            "id": "DEEP04",
+                            "description": "Disable autologin (Deepin) [CSC]",
+                            "command": [
+                                "module_desktops manual de=deepin"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=deepin && module_desktops login de=deepin",
+                            "help": "Disable automatic desktop login for Deepin"
+                        },
+                        {
+                            "id": "ENLT04",
+                            "description": "Disable autologin (Enlightenment) [CSC]",
+                            "command": [
+                                "module_desktops manual de=enlightenment"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=enlightenment && module_desktops login de=enlightenment",
+                            "help": "Disable automatic desktop login for Enlightenment"
+                        },
+                        {
+                            "id": "XFCE04",
+                            "description": "Disable autologin (XFCE)",
+                            "command": [
+                                "module_desktops manual de=xfce"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=xfce && module_desktops login de=xfce",
+                            "help": "Disable automatic desktop login for XFCE"
+                        },
+                        {
+                            "id": "CINM07",
+                            "description": "Change Cinnamon to minimal",
+                            "command": [
+                                "module_desktops set-tier de=cinnamon tier=minimal"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=cinnamon && ! module_desktops at-tier de=cinnamon tier=minimal",
+                            "help": "Downgrade Cinnamon to the minimal tier (removes mid/full extras)"
+                        },
+                        {
+                            "id": "CINM08",
+                            "description": "Change Cinnamon to mid",
+                            "command": [
+                                "module_desktops set-tier de=cinnamon tier=mid"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=cinnamon && ! module_desktops at-tier de=cinnamon tier=mid",
+                            "help": "Move Cinnamon to the mid tier (adds browser, editor, media tools; removes office apps if downgrading)"
+                        },
+                        {
+                            "id": "CINM09",
+                            "description": "Change Cinnamon to full",
+                            "command": [
+                                "module_desktops set-tier de=cinnamon tier=full"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=cinnamon && ! module_desktops at-tier de=cinnamon tier=full",
+                            "help": "Upgrade Cinnamon to the full tier (adds office, GIMP, Inkscape, etc.)"
+                        },
+                        {
+                            "id": "GNME07",
+                            "description": "Change GNOME to minimal",
+                            "command": [
+                                "module_desktops set-tier de=gnome tier=minimal"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=gnome && ! module_desktops at-tier de=gnome tier=minimal",
+                            "help": "Downgrade GNOME to the minimal tier"
+                        },
+                        {
+                            "id": "GNME08",
+                            "description": "Change GNOME to mid",
+                            "command": [
+                                "module_desktops set-tier de=gnome tier=mid"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=gnome && ! module_desktops at-tier de=gnome tier=mid",
+                            "help": "Move GNOME to the mid tier"
+                        },
+                        {
+                            "id": "GNME09",
+                            "description": "Change GNOME to full",
+                            "command": [
+                                "module_desktops set-tier de=gnome tier=full"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=gnome && ! module_desktops at-tier de=gnome tier=full",
+                            "help": "Upgrade GNOME to the full tier"
+                        },
+                        {
+                            "id": "MATE07",
+                            "description": "Change MATE to minimal",
+                            "command": [
+                                "module_desktops set-tier de=mate tier=minimal"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=mate && ! module_desktops at-tier de=mate tier=minimal",
+                            "help": "Downgrade MATE to the minimal tier"
+                        },
+                        {
+                            "id": "MATE08",
+                            "description": "Change MATE to mid",
+                            "command": [
+                                "module_desktops set-tier de=mate tier=mid"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=mate && ! module_desktops at-tier de=mate tier=mid",
+                            "help": "Move MATE to the mid tier"
+                        },
+                        {
+                            "id": "MATE09",
+                            "description": "Change MATE to full",
+                            "command": [
+                                "module_desktops set-tier de=mate tier=full"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=mate && ! module_desktops at-tier de=mate tier=full",
+                            "help": "Upgrade MATE to the full tier"
+                        },
+                        {
+                            "id": "I3WM07",
+                            "description": "Change i3 to minimal",
+                            "command": [
+                                "module_desktops set-tier de=i3-wm tier=minimal"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=i3-wm && ! module_desktops at-tier de=i3-wm tier=minimal",
+                            "help": "Downgrade i3 to the minimal tier"
+                        },
+                        {
+                            "id": "I3WM08",
+                            "description": "Change i3 to mid",
+                            "command": [
+                                "module_desktops set-tier de=i3-wm tier=mid"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=i3-wm && ! module_desktops at-tier de=i3-wm tier=mid",
+                            "help": "Move i3 to the mid tier"
+                        },
+                        {
+                            "id": "I3WM09",
+                            "description": "Change i3 to full",
+                            "command": [
+                                "module_desktops set-tier de=i3-wm tier=full"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=i3-wm && ! module_desktops at-tier de=i3-wm tier=full",
+                            "help": "Upgrade i3 to the full tier"
+                        },
+                        {
+                            "id": "KDEP07",
+                            "description": "Change KDE Plasma to minimal",
+                            "command": [
+                                "module_desktops set-tier de=kde-plasma tier=minimal"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=kde-plasma && ! module_desktops at-tier de=kde-plasma tier=minimal",
+                            "help": "Downgrade KDE Plasma to the minimal tier"
+                        },
+                        {
+                            "id": "KDEP08",
+                            "description": "Change KDE Plasma to mid",
+                            "command": [
+                                "module_desktops set-tier de=kde-plasma tier=mid"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=kde-plasma && ! module_desktops at-tier de=kde-plasma tier=mid",
+                            "help": "Move KDE Plasma to the mid tier"
+                        },
+                        {
+                            "id": "KDEP09",
+                            "description": "Change KDE Plasma to full",
+                            "command": [
+                                "module_desktops set-tier de=kde-plasma tier=full"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=kde-plasma && ! module_desktops at-tier de=kde-plasma tier=full",
+                            "help": "Upgrade KDE Plasma to the full tier"
+                        },
+                        {
+                            "id": "XFCE07",
+                            "description": "Change XFCE to minimal",
+                            "command": [
+                                "module_desktops set-tier de=xfce tier=minimal"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=xfce && ! module_desktops at-tier de=xfce tier=minimal",
+                            "help": "Downgrade XFCE to the minimal tier"
+                        },
+                        {
+                            "id": "XFCE08",
+                            "description": "Change XFCE to mid",
+                            "command": [
+                                "module_desktops set-tier de=xfce tier=mid"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=xfce && ! module_desktops at-tier de=xfce tier=mid",
+                            "help": "Move XFCE to the mid tier"
+                        },
+                        {
+                            "id": "XFCE09",
+                            "description": "Change XFCE to full",
+                            "command": [
+                                "module_desktops set-tier de=xfce tier=full"
+                            ],
+                            "status": "Stable",
+                            "author": "@igorpecovnik",
+                            "condition": "module_desktops status de=xfce && ! module_desktops at-tier de=xfce tier=full",
+                            "help": "Upgrade XFCE to the full tier"
+                        },
+                        {
+                            "id": "Xapian",
+                            "description": "Improve application search speed",
+                            "command": [
+                                "update-apt-xapian-index -u; sleep 3"
+                            ],
+                            "status": "Disabled",
+                            "author": "@igorpecovnik",
+                            "condition": "srv_active display-manager",
+                            "help": "Improve application search speed"
+                        }
+                    ],
+                    "help": "Install, remove and configure desktop environments with autologin support"
                 },
                 {
                     "id": "Storage",

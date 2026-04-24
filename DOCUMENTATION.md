@@ -17,8 +17,83 @@ sudo armbian-config
     - ### Install Linux headers
     - ### Remove Linux headers
     - ### Manage device tree overlays
+    - ### Edit device tree
     - ### Select Odroid board configuration
     - ### Edit the boot environment
+
+
+  - ### Install, remove and configure desktop environments
+    - ### Install Cinnamon (minimal)
+    - ### Install Cinnamon (mid)
+    - ### Install Cinnamon (full)
+    - ### Install GNOME (minimal)
+    - ### Install GNOME (mid)
+    - ### Install GNOME (full)
+    - ### Install MATE (minimal)
+    - ### Install MATE (mid)
+    - ### Install MATE (full)
+    - ### Install i3 (minimal)
+    - ### Install i3 (mid)
+    - ### Install i3 (full)
+    - ### Install KDE Plasma (minimal)
+    - ### Install KDE Plasma (mid)
+    - ### Install KDE Plasma (full)
+    - ### Install KDE Neon
+    - ### Install Budgie [CSC]
+    - ### Install Deepin [CSC]
+    - ### Install Enlightenment [CSC]
+    - ### Install Bianbu [CSC]
+    - ### Install XFCE (minimal)
+    - ### Install XFCE (mid)
+    - ### Install XFCE (full)
+    - ### Uninstall Cinnamon
+    - ### Uninstall GNOME
+    - ### Uninstall MATE
+    - ### Uninstall i3
+    - ### Uninstall KDE Plasma
+    - ### Uninstall KDE Neon
+    - ### Uninstall Budgie [CSC]
+    - ### Uninstall Deepin [CSC]
+    - ### Uninstall Enlightenment [CSC]
+    - ### Uninstall XFCE
+    - ### Enable autologin (Cinnamon)
+    - ### Enable autologin (GNOME)
+    - ### Enable autologin (MATE)
+    - ### Enable autologin (i3)
+    - ### Enable autologin (KDE Plasma)
+    - ### Enable autologin (KDE Neon)
+    - ### Enable autologin (Budgie) [CSC]
+    - ### Enable autologin (Deepin) [CSC]
+    - ### Enable autologin (Enlightenment) [CSC]
+    - ### Enable autologin (XFCE)
+    - ### Disable autologin (Cinnamon)
+    - ### Disable autologin (GNOME)
+    - ### Disable autologin (MATE)
+    - ### Disable autologin (i3)
+    - ### Disable autologin (KDE Plasma)
+    - ### Disable autologin (KDE Neon)
+    - ### Disable autologin (Budgie) [CSC]
+    - ### Disable autologin (Deepin) [CSC]
+    - ### Disable autologin (Enlightenment) [CSC]
+    - ### Disable autologin (XFCE)
+    - ### Change Cinnamon to minimal
+    - ### Change Cinnamon to mid
+    - ### Change Cinnamon to full
+    - ### Change GNOME to minimal
+    - ### Change GNOME to mid
+    - ### Change GNOME to full
+    - ### Change MATE to minimal
+    - ### Change MATE to mid
+    - ### Change MATE to full
+    - ### Change i3 to minimal
+    - ### Change i3 to mid
+    - ### Change i3 to full
+    - ### Change KDE Plasma to minimal
+    - ### Change KDE Plasma to mid
+    - ### Change KDE Plasma to full
+    - ### Change XFCE to minimal
+    - ### Change XFCE to mid
+    - ### Change XFCE to full
 
 
   - ### Install to internal media, ZFS, NFS, read-only rootfs
@@ -397,8 +472,81 @@ Outputs:
 	--cmd HEAD01 - Install Linux headers
 	--cmd HEAD02 - Remove Linux headers
 	--cmd DTO001 - Manage device tree overlays
+	--cmd DTE001 - Edit device tree
 	--cmd ODR001 - Select Odroid board configuration
 	--cmd BOOT01 - Edit the boot environment
+    Desktops - Install, remove and configure desktop environments
+	--cmd CINM01 - Install Cinnamon (minimal)
+	--cmd CINM05 - Install Cinnamon (mid)
+	--cmd CINM06 - Install Cinnamon (full)
+	--cmd GNME01 - Install GNOME (minimal)
+	--cmd GNME05 - Install GNOME (mid)
+	--cmd GNME06 - Install GNOME (full)
+	--cmd MATE01 - Install MATE (minimal)
+	--cmd MATE05 - Install MATE (mid)
+	--cmd MATE06 - Install MATE (full)
+	--cmd I3WM01 - Install i3 (minimal)
+	--cmd I3WM05 - Install i3 (mid)
+	--cmd I3WM06 - Install i3 (full)
+	--cmd KDEP01 - Install KDE Plasma (minimal)
+	--cmd KDEP05 - Install KDE Plasma (mid)
+	--cmd KDEP06 - Install KDE Plasma (full)
+	--cmd KDEN01 - Install KDE Neon
+	--cmd BDGE01 - Install Budgie [CSC]
+	--cmd DEEP01 - Install Deepin [CSC]
+	--cmd ENLT01 - Install Enlightenment [CSC]
+	--cmd BIAN01 - Install Bianbu [CSC]
+	--cmd XFCE01 - Install XFCE (minimal)
+	--cmd XFCE05 - Install XFCE (mid)
+	--cmd XFCE06 - Install XFCE (full)
+	--cmd CINM02 - Uninstall Cinnamon
+	--cmd GNME02 - Uninstall GNOME
+	--cmd MATE02 - Uninstall MATE
+	--cmd I3WM02 - Uninstall i3
+	--cmd KDEP02 - Uninstall KDE Plasma
+	--cmd KDEN02 - Uninstall KDE Neon
+	--cmd BDGE02 - Uninstall Budgie [CSC]
+	--cmd DEEP02 - Uninstall Deepin [CSC]
+	--cmd ENLT02 - Uninstall Enlightenment [CSC]
+	--cmd XFCE02 - Uninstall XFCE
+	--cmd CINM03 - Enable autologin (Cinnamon)
+	--cmd GNME03 - Enable autologin (GNOME)
+	--cmd MATE03 - Enable autologin (MATE)
+	--cmd I3WM03 - Enable autologin (i3)
+	--cmd KDEP03 - Enable autologin (KDE Plasma)
+	--cmd KDEN03 - Enable autologin (KDE Neon)
+	--cmd BDGE03 - Enable autologin (Budgie) [CSC]
+	--cmd DEEP03 - Enable autologin (Deepin) [CSC]
+	--cmd ENLT03 - Enable autologin (Enlightenment) [CSC]
+	--cmd XFCE03 - Enable autologin (XFCE)
+	--cmd CINM04 - Disable autologin (Cinnamon)
+	--cmd GNME04 - Disable autologin (GNOME)
+	--cmd MATE04 - Disable autologin (MATE)
+	--cmd I3WM04 - Disable autologin (i3)
+	--cmd KDEP04 - Disable autologin (KDE Plasma)
+	--cmd KDEN04 - Disable autologin (KDE Neon)
+	--cmd BDGE04 - Disable autologin (Budgie) [CSC]
+	--cmd DEEP04 - Disable autologin (Deepin) [CSC]
+	--cmd ENLT04 - Disable autologin (Enlightenment) [CSC]
+	--cmd XFCE04 - Disable autologin (XFCE)
+	--cmd CINM07 - Change Cinnamon to minimal
+	--cmd CINM08 - Change Cinnamon to mid
+	--cmd CINM09 - Change Cinnamon to full
+	--cmd GNME07 - Change GNOME to minimal
+	--cmd GNME08 - Change GNOME to mid
+	--cmd GNME09 - Change GNOME to full
+	--cmd MATE07 - Change MATE to minimal
+	--cmd MATE08 - Change MATE to mid
+	--cmd MATE09 - Change MATE to full
+	--cmd I3WM07 - Change i3 to minimal
+	--cmd I3WM08 - Change i3 to mid
+	--cmd I3WM09 - Change i3 to full
+	--cmd KDEP07 - Change KDE Plasma to minimal
+	--cmd KDEP08 - Change KDE Plasma to mid
+	--cmd KDEP09 - Change KDE Plasma to full
+	--cmd XFCE07 - Change XFCE to minimal
+	--cmd XFCE08 - Change XFCE to mid
+	--cmd XFCE09 - Change XFCE to full
     Storage - Install to internal media, ZFS, NFS, read-only rootfs
 	--cmd STO001 - Copy the running Armbian system to another device
 	--cmd FLASH1 - Download a fresh, official Armbian OS image and write it to a device
@@ -716,6 +864,16 @@ Jobs:
 No commands available
 ~~~
 
+### Desktops
+
+Install, remove and configure desktop environments
+
+Jobs:
+
+~~~
+No commands available
+~~~
+
 ### Storage
 
 Install to internal media, ZFS, NFS, read-only rootfs
@@ -1024,6 +1182,7 @@ These helper functions facilitate various operations related to job management, 
 | Description | Example | Credit |
 |:----------- | ------- |:------:|
 | Generate a Help message legacy cli commands. | see_cli_legacy | @Tearran 
+| Detect first regular user for desktop setup | module_desktop_getuser | @igorpecovnik 
 | Run time variables Migrated procedures from Armbian config. | set_runtime_variables | @igorpecovnik 
 | Install Ghost CMS container | install remove purge status help | @igorpecovnik 
 | Check for (Whiptail, DIALOG, READ) tools and set the user interface. |  | Tearran 
@@ -1038,6 +1197,7 @@ These helper functions facilitate various operations related to job management, 
 | Install HA supervised container | install remove purge status help | @armbian 
 | Display a menu from pipe | show_menu <<< armbianmonitor -h  ;  | @Tearran 
 | Start service | srv_start ssh.service | @dimitry-ishenko 
+| Enable/disable device tree overlays | install remove edit show help | @viraniac 
 | Install watchtower container | install remove purge status help | @armbian 
 | Build the main menu from a object | generate_top_menu 'json_data' | @Tearran 
 | Install bazarr container | install remove purge status help | @igorpecovnik 
@@ -1049,13 +1209,14 @@ These helper functions facilitate various operations related to job management, 
 | Install sonarr container | install remove purge status help | @armbian 
 | Display a yes/no dialog using the configured dialog tool | dialog_yesno "Title" "Question" | @armbian 
 | Generate Document files. | generate_readme | @Tearran 
-|  |  | @igorpecovnik 
+| Storing netplan config to tmp | store_netplan_config | @igorpecovnik 
 | Generic module help dialog for containers and native installs | show_module_help "module_headers" "Kernel Headers" "" "native" | @armbian 
 | Install PostgreSQL container (advanced relational database) | install remove purge status help | @armbian 
 | Install jellyfin container | install remove purge status help | @armbian 
 | Install jellyseerr container | install remove purge status help | @armbian 
 | Memory management and tuning interface | install remove status tune help | @igorpecovnik 
 | Needed by generate_menu | execute_command 'id' | @Tearran 
+| Check if a desktop is supported on this system | module_desktop_supported xfce | @igorpecovnik 
 | Display an input box dialog using the configured dialog tool | dialog_inputbox "Title" "Prompt" "default_value" | @armbian 
 | Display a Yes/No dialog box and process continue/exit | get_user_continue 'Do you wish to continue?' process_input | @Tearran 
 | Module for Armbian firmware manipulating | select install show hold unhold repository help | @igorpecovnik 
@@ -1064,13 +1225,12 @@ These helper functions facilitate various operations related to job management, 
 | Unmask service | srv_unmask ssh.service | @dimitry-ishenko 
 | Display a checklist dialog using the configured dialog tool | dialog_checklist "Title" "Prompt" option1 "Description 1" ON option2 "Description 2" OFF | @armbian 
 | Display a message box | show_message <<< 'hello world'  | @Tearran 
+| Download and manage AppImage applications | install remove status help | @igorpecovnik 
 | Manage self hosted runners | install remove remove_online purge status help | @igorpecovnik 
 | Install domoticz container | install remove purge status help | @armbian 
 | Install and configure automatic updates | install remove configure status defaults help | @igorpecovnik 
 | Menu for armbianmonitor features | see_monitoring | @Tearran 
 | Install VS Code in browser container | install remove purge status help | @igorpecovnik 
-| Enable/disable device tree overlays |  | @viraniac 
-| XFCE desktop packages | install remove disable enable status auto manual login help | @igorpecovnik 
 | Remove package | pkg_remove nmap | @dimitry-ishenko 
 | Install Immich (photo and video backup solution) | install remove purge status help |  
 | Display a message box using the configured dialog tool | dialog_msgbox "Title" "Message" | @armbian 
@@ -1078,9 +1238,11 @@ These helper functions facilitate various operations related to job management, 
 | Samba setup and service setting. | help install remove start stop enable disable configure default status | @Tearran 
 | Check when apt list was last updated and suggest updating or update | see_current_apt or see_current_apt update | @Tearran 
 | Install/uninstall/check status of portainer container | install remove purge status help | @armbian 
+| Install and manage desktop environments (YAML-driven) | install remove disable enable status auto manual login supported installed help upgrade downgrade tier at-tier set-tier | @igorpecovnik 
 | Install plexmediaserver from repo using apt | install remove status | @schwar3kat 
 | Display a gauge dialog for progress indication | echo 50 | dialog_gauge "Title" "Progress" 10 70 | @armbian 
 | Generate 'Armbian CPU logo' SVG for document file. | generate_svg | @Tearran 
+| Copy /etc/skel files into existing user home directories | install help | @igorpecovnik 
 | Upgrade installed packages (potentially removing some) | pkg_full_upgrade | @dimitry-ishenko 
 | Install ZFS filesystem support | install remove status tune scan import kernel_max zfs_version zfs_installed_version help | @igorpecovnik 
 | Check if package is installed | pkg_installed mc | @dimitry-ishenko 
@@ -1092,6 +1254,7 @@ These helper functions facilitate various operations related to job management, 
 | Install package | pkg_install neovim | @dimitry-ishenko 
 | Install wireguard container | install client server remove purge qrcode status help | @armbian 
 | Display an info box using the configured dialog tool | dialog_infobox "Title" "Message" 6 80 | @armbian 
+| Write a debug message to the debug log sink | debug_log "pkg_install: ${#pkg_names[@]} packages" | @igorpecovnik 
 | Secure Web Application Gateway  | install remove purge status password help | @igorpecovnik 
 | Install deluge container | install remove purge status help | @igorpecovnik 
 | Set Armbian root filesystem to read only | install remove status help | @igorpecovnik 
@@ -1120,6 +1283,7 @@ These helper functions facilitate various operations related to job management, 
 | Install nextcloud container | install remove purge status help | @igorpecovnik 
 | Install navidrome container | install remove purge status help | @armbian 
 | Wait for a Docker container to be ready (default: check if running) | wait_for_container_ready "container_name" 20 3 | @armbian 
+| Install Armbian desktop branding assets | module_desktop_branding xfce | @igorpecovnik 
 | Install Openhab | install remove purge status help | @igorpecovnik 
 | Uses Avalible (Whiptail, DIALOG, READ) for the menu interface | <function_name> | Tearran 
 | Install medusa container | install remove purge status help | @armbian 
@@ -1137,17 +1301,18 @@ These helper functions facilitate various operations related to job management, 
 | Show general information about this tool | about_armbian_configng | @igorpecovnik 
 | Install unbound container | install remove purge status help | @igorpecovnik 
 | Serve the edit and debug server. | serve_doc | @Tearran 
+| Set up custom APT repository for desktop environments | module_desktop_repo kde-neon | @igorpecovnik 
 | Update JSON data with system information | update_json_data | @Tearran 
 | Check if service is active | srv_active ssh.service | @dimitry-ishenko 
 | Install nfs client | install remove servers mounts help | @igorpecovnik 
 | pipeline strings to an infobox  | show_infobox <<< 'hello world' ;  | @Tearran 
 | Install uptimekuma container | install remove purge status help | @armbian 
 | Install homepage container | install remove purge status help | @armbian 
-| Generate desktop packages list |  | @igorpecovnik 
 | Toggle IPv6 on or off | toggle_ipv6 | @Tearran 
 | Update sub-submenu descriptions based on conditions | update_sub_submenu_data MenuID SubID SubSubID CMD | @Tearran 
 | Parse json to get list of desired menu or submenu items. Can return pairs or triplets depending on --with-help flag. | parse_menu_items 'menu_options_array'
 parse_menu_items 'menu_options_array' --with-help | @viraniac 
+| Parse desktop YAML definitions | module_desktop_yamlparse xfce | @igorpecovnik 
 | Show the usage of the functions. | see_use | @Tearran 
 | Stop hostapd, clean config | default_wireless_network_config | @igorpecovnik 
 | Check if service is enabled | srv_enabled ssh.service | @dimitry-ishenko 
@@ -1157,11 +1322,13 @@ parse_menu_items 'menu_options_array' --with-help | @viraniac
 | Install NetBox container (IPAM/DCIM tool) | install remove purge status help |  
 | Install sabnzbd container | install remove purge status help | @armbian 
 | Mask service | srv_mask ssh.service | @dimitry-ishenko 
+| Edit device tree source and compile | install remove status edit help | @igorpecovnik 
 | Show service status information | srv_status ssh.service | @dimitry-ishenko 
 | Install Redis in a container (In-Memory Data Store) | install remove purge status help | @armbian 
 | Stop service | srv_stop ssh.service | @dimitry-ishenko 
 | Configure an unconfigured package | pkg_configure | @dimitry-ishenko 
 | Check if a domain is reachable via IPv4 and IPv6 | module_check_ip_version google.com | @Tearran 
+| Clear apt's downloaded .deb cache (apt-get clean) | pkg_clean | @igorpecovnik 
 | Install Pi-hole container | install remove purge password status help | @armbian 
 | Generate a Help message for cli commands. | see_cmd_list [category] | @Tearran 
 | Install mariadb container | install remove purge status help | @igorpecovnik 
@@ -1175,7 +1342,6 @@ parse_menu_items 'menu_options_array' --with-help | @viraniac
 | Make sure param contains only valid chars | sanitize 'foo_bar_42' | @Tearran 
 | Install docker from a repo using apt | install remove purge status help | @schwar3kat 
 | Upgrade to next stable or rolling release | release_upgrade stable verify | @igorpecovnik 
-| Update the /etc/skel files in users directories | update_skel | @igorpecovnik 
 | Default module implementation | disable enable help install remove status | @dimitry-ishenko 
 | change_system_hostname | change_system_hostname | @igorpecovnik 
 | Install netalertx container | install remove purge status help | @jokob-sk 

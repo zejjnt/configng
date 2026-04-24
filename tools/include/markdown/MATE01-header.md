@@ -1,0 +1,1 @@
+MATE is a continuation of GNOME 2, providing a traditional desktop experience with a classic two-panel layout. It is lightweight, stable, and fully customizable — a good choice for users who prefer a familiar desktop without the overhead of modern compositing effects.

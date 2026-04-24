@@ -1,1 +1,1 @@
-XFCE is a lightweight, fast, and user-friendly desktop environment for Linux, offering a classic interface, essential apps, and customization. It prioritizes performance, simplicity, and efficiency.
+Xfce is a lightweight, fast, and user-friendly desktop environment for Linux, offering a classic interface, essential apps, and customization. It prioritizes performance, simplicity, and efficiency, making it an excellent choice for devices with limited resources.
