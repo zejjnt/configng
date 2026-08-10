@@ -31,6 +31,17 @@ function module_armbian_runners () {
 	local commands
 	IFS=' ' read -r -a commands <<< "${module_options["module_armbian_runners,example"]}"
 
+	# Derive the GitHub registration target (org or owner/repo) for ALL
+	# subcommands — not just install — so remove/remove_online/purge can
+	# reach the API too. Previously these lived inside the install case, so
+	# every other subcommand built a malformed '//actions/runners' URL.
+	local registration_url="${organisation:-armbian}"
+	local prefix="orgs"
+	if [[ -n "${owner}" && -n "${repository}" ]]; then
+		registration_url="${owner}/${repository}"
+		prefix="repos"
+	fi
+
 	case "$1" in
 
 		"${commands[0]}")
@@ -68,7 +79,7 @@ function module_armbian_runners () {
 
 			if [[ -z $gh_token ]]; then
 				echo "Error: Github token is mandatory"
-				${module_options["module_armbian_runners,feature"]} ${commands[6]}
+				${module_options["module_armbian_runners,feature"]} ${commands[5]}
 				exit 1
 			fi
 
@@ -87,14 +98,6 @@ function module_armbian_runners () {
 			local label_primary=$(echo $label_primary | sed "s/_/,/g") # convert
 			local label_secondary=$(echo $label_secondary | sed "s/_/,/g") # convert
 
-			# we can generate per org or per repo
-			local registration_url="${organisation}"
-			local prefix="orgs"
-			if [[ -n "${owner}" && -n "${repository}" ]]; then
-				registration_url="${owner}/${repository}"
-				prefix=repos
-			fi
-
 			# Docker preinstall is needed for our build framework
 			pkg_installed docker-ce || module_docker install
 			pkg_update
@@ -105,7 +108,7 @@ function module_armbian_runners () {
 			trap '{ rm -rf -- "$temp_dir"; }' EXIT
 			[[ "$ARCH" == "x86_64" ]] && local arch=x64 || local arch=arm64
 			local LATEST=$(curl -sL https://api.github.com/repos/actions/runner/tags | jq -r '.[0].zipball_url' | rev | cut -d"/" -f1 | rev | sed "s/v//g")
-			curl --progress-bar --create-dir --output-dir ${temp_dir} -o \
+			curl --progress-bar --create-dirs --output-dir ${temp_dir} -o \
 			actions-runner-linux-${ARCH}-${LATEST}.tar.gz -L \
 			https://github.com/actions/runner/releases/download/v${LATEST}/actions-runner-linux-${arch}-${LATEST}.tar.gz
 
@@ -195,6 +198,17 @@ function module_armbian_runners () {
 				# svc.sh step above and drops in ExecStartPre/StopPost
 				# wired to /usr/local/sbin/runner-clean-pages.
 				install -m 0755 "${cleanup_src}/runner-clean-pages"     /usr/local/sbin/runner-clean-pages
+				# Per-job workspace chown. Docker builds leave root-owned
+				# files under _work that break the next job's checkout
+				# cleanup. The runner runs this after every job via
+				# ACTIONS_RUNNER_HOOK_JOB_COMPLETED (wired into each
+				# runner's .env below).
+				# The GitHub runner validates the hook path and rejects it
+				# unless it ends in .sh/.ps1/.js, so the installed name keeps
+				# the .sh extension. Remove the old extensionless copy left by
+				# earlier installs.
+				install -m 0755 "${cleanup_src}/runner-job-completed.sh" /usr/local/sbin/runner-job-completed.sh
+				rm -f /usr/local/sbin/runner-job-completed
 				systemctl daemon-reload
 				# Don't silence errors here — a failed timer install
 				# means the cleanup never fires and the host quietly
@@ -217,33 +231,86 @@ function module_armbian_runners () {
 				if ! bash "${cleanup_src}/install-runner-hooks"; then
 					echo "Warning: install-runner-hooks failed; runner-clean-pages systemd hooks not in place" >&2
 				fi
+
+				# Wire the post-job chown hook into every runner's .env. The
+				# runner loads ACTIONS_RUNNER_HOOK_JOB_COMPLETED from .env at
+				# service start and runs it (as the runner user, which has
+				# passwordless sudo) after each job. Idempotent; covers
+				# already-installed runners too. Takes effect on each runner's
+				# next (re)start, so we don't force-restart busy ones here.
+				local job_hook_path="/usr/local/sbin/runner-job-completed.sh"
+				local runner_home runner_owner env_file
+				for runner_home in /home/actions-runner-*; do
+					[[ -d "$runner_home" ]] || continue
+					runner_owner="$(stat -c '%U' "$runner_home")"
+					env_file="${runner_home}/.env"
+					touch "$env_file"
+					if grep -q '^ACTIONS_RUNNER_HOOK_JOB_COMPLETED=' "$env_file"; then
+						sed -i "s#^ACTIONS_RUNNER_HOOK_JOB_COMPLETED=.*#ACTIONS_RUNNER_HOOK_JOB_COMPLETED=${job_hook_path}#" "$env_file"
+					else
+						echo "ACTIONS_RUNNER_HOOK_JOB_COMPLETED=${job_hook_path}" >> "$env_file"
+					fi
+					chown "${runner_owner}:${runner_owner}" "$env_file"
+				done
 			else
 				echo "Warning: runner-cleanup assets not found in source tree next to module or at /usr/share/armbian-config/runner-cleanup; skipping maintenance helper install" >&2
 			fi
 
 		;;
 		"${commands[1]}")
-			# delete if previous already exists
-			echo "Removing runner $3 on GitHub"
-			if ! ${module_options["module_armbian_runners,feature"]} ${commands[2]} "$2-$3"; then
-				# Most common failure: GitHub returned 422 because
-				# the runner is currently running a job. Don't proceed
-				# with the local cleanup — that would leave a state
-				# where GitHub still thinks the runner exists, the
-				# host has no install, and the subsequent config.sh
-				# would fail with 'A runner exists with the same name'.
-				echo "Skipping local removal of actions-runner-$3 — GitHub delete failed (runner likely busy)" >&2
-				return 1
+			# `remove` is called two ways:
+			#   * internally by install/purge with positional args:
+			#       remove <runner_name> <index>
+			#   * directly via --api with named params and an index range:
+			#       remove runner_name=<n> start=<a> stop=<b> [organisation=..]
+			# A bare (no '=') $2 is the positional form; otherwise the named
+			# params parsed above drive a start..stop range.
+			local rm_name rm_indices
+			if [[ -n "$2" && "$2" != *=* ]]; then
+				rm_name="$2"
+				rm_indices="$3"
+			else
+				rm_name="${runner_name:-armbian}"
+				if [[ -n "${start}" || -n "${stop}" ]]; then
+					rm_indices="$(seq -w "${start:-01}" "${stop:-01}")"
+				fi
 			fi
-			echo "Removing runner $3 locally"
-			runner_home=$(getent passwd "actions-runner-${3}" | cut -d: -f6)
-			if [[ -f "${runner_home}/svc.sh" ]]; then
-				sh -c "cd ${runner_home} ; sudo ./svc.sh stop actions-runner-$3 >/dev/null; sudo ./svc.sh uninstall actions-runner-$3 >/dev/null"
-			fi
-			userdel -r -f actions-runner-$3 2>/dev/null
-			groupdel actions-runner-$3 2>/dev/null
-			sed -i "/^actions-runner-$3.*/d" /etc/sudoers
-			[[ ${runner_home} != "/" ]] && rm -rf "${runner_home}"
+
+			local rm_failed=0 idx target runner_home
+			for idx in ${rm_indices:-__bare__}; do
+				if [[ "$idx" == "__bare__" ]]; then
+					target="${rm_name}"
+				else
+					target="${rm_name}-${idx}"
+				fi
+
+				echo "Removing runner ${target} on GitHub"
+				if ! ${module_options["module_armbian_runners,feature"]} ${commands[2]} "${target}"; then
+					# Most common failure: GitHub returned 422 because
+					# the runner is currently running a job. Don't proceed
+					# with the local cleanup — that would leave a state
+					# where GitHub still thinks the runner exists, the
+					# host has no install, and the subsequent config.sh
+					# would fail with 'A runner exists with the same name'.
+					echo "Skipping local removal of actions-runner-${idx} — GitHub delete failed (runner likely busy)" >&2
+					rm_failed=1
+					continue
+				fi
+
+				# Without an index we can't map to a local user — GitHub-only.
+				[[ "$idx" == "__bare__" ]] && continue
+
+				echo "Removing runner ${idx} locally"
+				runner_home=$(getent passwd "actions-runner-${idx}" | cut -d: -f6)
+				if [[ -f "${runner_home}/svc.sh" ]]; then
+					sh -c "cd ${runner_home} ; sudo ./svc.sh stop actions-runner-${idx} >/dev/null; sudo ./svc.sh uninstall actions-runner-${idx} >/dev/null"
+				fi
+				userdel -r -f actions-runner-${idx} 2>/dev/null
+				groupdel actions-runner-${idx} 2>/dev/null
+				sed -i "/^actions-runner-${idx}.*/d" /etc/sudoers
+				[[ -n "${runner_home}" && ${runner_home} != "/" ]] && rm -rf "${runner_home}"
+			done
+			return $rm_failed
 		;;
 		"${commands[2]}")
 			DELETE=$2
@@ -296,27 +363,30 @@ function module_armbian_runners () {
 		"${commands[3]}")
 			if [[ -z $gh_token ]]; then
 				echo "Error: Github token is mandatory"
-				${module_options["module_armbian_runners,feature"]} ${commands[6]}
+				${module_options["module_armbian_runners,feature"]} ${commands[5]}
 				exit 1
 			fi
 			for i in $(seq -w $start $stop); do
-				${module_options["module_armbian_runners,feature"]} ${commands[1]} ${runner_name}
+				${module_options["module_armbian_runners,feature"]} ${commands[1]} ${runner_name} ${i}
 			done
 		;;
 		"${commands[4]}")
-			if [[ $(systemctl list-units --type=service 2>/dev/null | grep actions.runner) -gt 0 ]]; then
+			if [[ $(systemctl list-units --type=service --no-legend 2>/dev/null | grep -c actions.runner) -gt 0 ]]; then
 				return 0
 			else
 				return 1
 			fi
 		;;
-		"${commands[6]}")
+		"${commands[5]}")
 			echo -e "\nUsage: ${module_options["module_armbian_runners,feature"]} <command> [switches]"
-			echo -e "Commands:  install purge"
+			echo -e "Commands:  install remove remove_online purge status help"
 			echo -e "Available commands:\n"
 			echo -e "\tinstall\t\t- Install or reinstall $title."
+			echo -e "\tremove\t\t- Remove a single runner (locally and on GitHub)."
+			echo -e "\tremove_online\t- Remove matching runners on GitHub only."
 			echo -e "\tpurge\t\t- Purge $title."
 			echo -e "\tstatus\t\t- Status of $title."
+			echo -e "\thelp\t\t- Show this help."
 			echo -e "\nAvailable switches:\n"
 			echo -e "\tgh_token\t- token with rights to admin runners."
 			echo -e "\trunner_name\t- name of the runner (series)."
@@ -330,7 +400,7 @@ function module_armbian_runners () {
 			echo ""
 		;;
 		*)
-			${module_options["module_armbian_runners,feature"]} ${commands[6]}
+			${module_options["module_armbian_runners,feature"]} ${commands[5]}
 		;;
 	esac
 }

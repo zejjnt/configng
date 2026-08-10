@@ -105,7 +105,7 @@ sudo armbian-config
 
 
   - ### Install to internal media, ZFS, NFS, read-only rootfs
-    - ### Copy the running Armbian system to another device
+    - ### Install the running system to internal media (eMMC/NVMe/SATA/USB/UFS, or Windows dual-boot)
     - ### Download a fresh, official Armbian OS image and write it to a device
     - ### Remove all downloaded Armbian images
     - ### Enable read only filesystem
@@ -328,12 +328,21 @@ sudo armbian-config
     - ### Cockpit OS and VM management tool
     - ### Remove Cockpit
     - ### Purge Cockpit with virtual machines
+    - ### Proxmox VE virtualization platform (keeps the Armbian kernel)
+    - ### Remove Proxmox VE
+    - ### Purge Proxmox VE with cluster data
     - ### Install Homepage startpage / application dashboard
     - ### Remove Homepage
     - ### Purge Homepage with data folder
     - ### NetBox infrastructure resource modeling install
     - ### NetBox remove
     - ### NetBox purge with data folder
+    - ### apt-cacher-ng caching proxy install
+    - ### apt-cacher-ng remove
+    - ### apt-cacher-ng purge with cache folder
+    - ### git_cdn GitHub caching proxy install
+    - ### git_cdn remove
+    - ### git_cdn purge with cache folder
     - ### SAMBA Remote File share
     - ### Webmin web-based management tool
 
@@ -564,7 +573,7 @@ Outputs:
 	--cmd XFCE08 - Change XFCE to mid
 	--cmd XFCE09 - Change XFCE to full
     Storage - Install to internal media, ZFS, NFS, read-only rootfs
-	--cmd STO001 - Copy the running Armbian system to another device
+	--cmd STO001 - Install the running system to internal media (eMMC/NVMe/SATA/USB/UFS, or Windows dual-boot)
 	--cmd FLASH1 - Download a fresh, official Armbian OS image and write it to a device
 	--cmd FLASH2 - Remove all downloaded Armbian images
 	--cmd ROO001 - Enable read only filesystem
@@ -745,12 +754,21 @@ Outputs:
 	--cmd CPT001 - Cockpit OS and VM management tool
 	--cmd CPT002 - Remove Cockpit (https://localhost:9890)
 	--cmd CPT003 - Purge Cockpit with virtual machines
+	--cmd PVE001 - Proxmox VE virtualization platform (keeps the Armbian kernel)
+	--cmd PVE002 - Remove Proxmox VE (https://localhost:8006)
+	--cmd PVE003 - Purge Proxmox VE with cluster data
 	--cmd HPG001 - Install Homepage startpage / application dashboard
 	--cmd HPG002 - Remove Homepage (http://localhost:3021)
 	--cmd HPG003 - Purge Homepage with data folder
 	--cmd NBOX01 - NetBox infrastructure resource modeling install
 	--cmd NBOX02 - NetBox remove (http://localhost:8222)
 	--cmd NBOX03 - NetBox purge with data folder
+	--cmd APT001 - apt-cacher-ng caching proxy install
+	--cmd APT002 - apt-cacher-ng remove (http://localhost:3142/acng-report.html)
+	--cmd APT003 - apt-cacher-ng purge with cache folder
+	--cmd GCD001 - git_cdn GitHub caching proxy install
+	--cmd GCD002 - git_cdn remove
+	--cmd GCD003 - git_cdn purge with cache folder
 	--cmd SMB001 - SAMBA Remote File share
 	--cmd WBM001 - Webmin web-based management tool
     Media - Media servers, organizers and editors
@@ -1210,6 +1228,7 @@ These helper functions facilitate various operations related to job management, 
 | Reload service | srv_reload ssh.service | @dimitry-ishenko 
 | Revert network config back to Armbian defaults | default_network_config | @igorpecovnik 
 | Webmin setup and service setting. | help install remove start stop enable disable status check | @Tearran 
+| Armbian installer engine (backend library, no UI) | detect plan | @igorpecovnik 
 | Install HA supervised container | install remove purge status help | @armbian 
 | Display a menu from pipe | show_menu <<< armbianmonitor -h  ;  | @Tearran 
 | Start service | srv_start ssh.service | @dimitry-ishenko 
@@ -1217,6 +1236,7 @@ These helper functions facilitate various operations related to job management, 
 | Install watchtower container | install remove purge status help | @armbian 
 | Build the main menu from a object | generate_top_menu 'json_data' | @Tearran 
 | Install bazarr container | install remove purge status help | @igorpecovnik 
+| Proxmox VE on top of the Armbian kernel (Debian trixie) | install remove purge status help | @igorpecovnik 
 | Install kernel headers for building kernel modules | install remove status help | @armbian 
 | Migrated procedures from Armbian config. | is_package_manager_running | @armbian 
 | Migrated procedures from Armbian config. | check_desktop | @armbian 
@@ -1225,7 +1245,7 @@ These helper functions facilitate various operations related to job management, 
 | Install sonarr container | install remove purge status help | @armbian 
 | Display a yes/no dialog using the configured dialog tool | dialog_yesno "Title" "Question" | @armbian 
 | Generate Document files. | generate_readme | @Tearran 
-| Storing netplan config to tmp | store_netplan_config | @igorpecovnik 
+|  |  | @igorpecovnik 
 | Generic module help dialog for containers and native installs | show_module_help "module_headers" "Kernel Headers" "" "native" | @armbian 
 | Install PostgreSQL container (advanced relational database) | install remove purge status help | @armbian 
 | Install jellyfin container | install remove purge status help | @armbian 
@@ -1256,7 +1276,7 @@ These helper functions facilitate various operations related to job management, 
 | Check when apt list was last updated and suggest updating or update | see_current_apt or see_current_apt update | @Tearran 
 | Install/uninstall/check status of portainer container | install remove purge status help | @armbian 
 | Install and manage desktop environments (YAML-driven) | install remove disable enable status auto manual login supported installed help upgrade downgrade tier at-tier set-tier | @igorpecovnik 
-| Install plexmediaserver from repo using apt | install remove status | @schwar3kat 
+| Install plexmediaserver from repo using apt | install remove status help | @schwar3kat 
 | Display a gauge dialog for progress indication | echo 50 | dialog_gauge "Title" "Progress" 10 70 | @armbian 
 | Generate 'Armbian CPU logo' SVG for document file. | generate_svg | @Tearran 
 | Copy /etc/skel files into existing user home directories | install help | @igorpecovnik 
@@ -1276,6 +1296,7 @@ These helper functions facilitate various operations related to job management, 
 | Install deluge container | install remove purge status help | @igorpecovnik 
 | Set Armbian root filesystem to read only | install remove status help | @igorpecovnik 
 | Cockpit setup and service setting. | install remove purge status help | @tearran 
+| Install apt-cacher-ng container (caching proxy for Debian/Ubuntu apt repos) | install remove purge status help | @igorpecovnik 
 | Generate a submenu from a parent_id | generate_menu 'parent_id' | @Tearran 
 | Generate a markdown list json objects using jq. | see_jq_menu_list | @Tearran 
 | Install octoprint container | install remove purge status help | @armbian 
@@ -1311,6 +1332,7 @@ These helper functions facilitate various operations related to job management, 
 | Install Zerotier | help install remove start stop enable disable status check | @jnovos 
 | Install grafana container | install remove purge status help | @armbian 
 | Select optimised Odroid board configuration | select | @GeoffClements 
+| Armbian installer (transfer rootfs to eMMC/NVMe/SATA/USB/UFS) | run install detect plan help | @igorpecovnik 
 | Install owncloud container | install remove purge status help | @armbian 
 | Install netdata container | install remove purge status help | @armbian 
 | Change the background color of the terminal or dialog box | set_colors 0-7 | @Tearran 
@@ -1327,6 +1349,7 @@ These helper functions facilitate various operations related to job management, 
 | Install homepage container | install remove purge status help | @armbian 
 | Toggle IPv6 on or off | toggle_ipv6 | @Tearran 
 | Update sub-submenu descriptions based on conditions | update_sub_submenu_data MenuID SubID SubSubID CMD | @Tearran 
+| Install git_cdn container (caching git+http proxy for GitHub clones) | install remove purge status help | @igorpecovnik 
 | Parse json to get list of desired menu or submenu items. Can return pairs or triplets depending on --with-help flag. | parse_menu_items 'menu_options_array'
 parse_menu_items 'menu_options_array' --with-help | @viraniac 
 | Parse desktop YAML definitions | module_desktop_yamlparse xfce | @igorpecovnik 
