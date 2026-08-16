@@ -5,7 +5,7 @@ module_options+=(
 	["module_partitioner,author"]="@igorpecovnik"
 	["module_partitioner,maintainer"]="@igorpecovnik"
 	["module_partitioner,feature"]="module_partitioner"
-	["module_partitioner,example"]="run install detect plan help"
+	["module_partitioner,example"]="run install detect plan help bootloader"
 	["module_partitioner,desc"]="Armbian installer (transfer rootfs to eMMC/NVMe/SATA/USB/UFS)"
 	["module_partitioner,status"]="review"
 	["module_partitioner,doc_link"]="https://docs.armbian.com"
@@ -307,6 +307,119 @@ partitioner_tui() {
 	return "$rc"
 }
 
+# ---- flash bootloader only --------------------------------------------------
+
+# Block devices u-boot can be written to (SD/eMMC whole-disks). The SoC bootrom
+# only loads u-boot from SD/eMMC (or SPI/MTD, offered separately) - never from
+# NVMe/SATA/USB - so only mmcblk* whole devices are listed (boot0/boot1 hw
+# partitions skipped). Emits "<name>\t<human size>\t<note>" per line.
+partitioner_uboot_block_targets() {
+	local root_disk emmc d name secs
+	root_disk="$(partitioner_root_disk)"
+	emmc="$(partitioner_emmc_device)"; emmc="${emmc#/dev/}"
+	for d in /sys/block/mmcblk[0-9]; do
+		[[ -e "$d" ]] || continue
+		name="$(basename "$d")"
+		secs="$(cat "$d/size" 2>/dev/null || echo 0)"
+		local note="SD"; [[ "$name" == "$emmc" ]] && note="eMMC"
+		[[ "$name" == "$root_disk" ]] && note="$note, running root"
+		printf '%s\t%s\t%s\n' "$name" \
+			"$(numfmt --to=iec --suffix=B $(( secs * 512 )) 2>/dev/null || echo $(( secs / 2 ))K)" "$note"
+	done
+}
+
+# Standalone "flash the bootloader only" flow: write the RUNNING system's u-boot
+# to SPI/MTD or an SD/eMMC device, without partitioning or touching any rootfs.
+# For bringup scenarios (e.g. running from NVMe, initial boot via Maskrom/ramboot)
+# where you just need u-boot on internal flash or the SD - the old armbian-install
+# could do this; the new one only did it as part of a full install. Reuses the
+# same install_write_bootloader path the installer uses, so it's no riskier than
+# the install's bootloader step.
+partitioner_flash_uboot_tui() {
+	local title="Armbian installer - bootloader"
+	INSTALL_LOG="/var/log/armbian-install.log"
+
+	local mtd_list; mtd_list="$(partitioner_mtd_list)"
+	local -a menu=()
+	[[ "$(type -t write_uboot_platform_mtd)" == function && -n "$mtd_list" ]] \
+		&& menu+=("mtd" "SPI / on-board flash (u-boot)")
+	if [[ "$(type -t write_uboot_platform)" == function ]]; then
+		local name size note
+		while IFS=$'\t' read -r name size note; do
+			[[ -n "$name" ]] || continue
+			menu+=("$name" "/dev/$name   $size   ($note)")
+		done < <(partitioner_uboot_block_targets)
+	fi
+
+	if [[ ${#menu[@]} -eq 0 ]]; then
+		dialog_msgbox " $title " "\nThis board has no writable u-boot target: no SPI/MTD flash, and no board u-boot hook for SD/eMMC."
+		return "$INSTALL_EX_BOOTLOADER"
+	fi
+
+	local sel
+	sel=$(dialog_menu " $title " "\nWrite the running system's u-boot (bootloader) to:" 0 78 10 -- "${menu[@]}")
+	[[ -z "$sel" ]] && return "$INSTALL_EX_OK"
+
+	local mode target warn
+	if [[ "$sel" == "mtd" ]]; then
+		mode="mtd"; target="/dev/${mtd_list%% *}"; warn="the on-board SPI / MTD flash"
+	else
+		mode="sd"; target="/dev/$sel"; warn="$target"
+	fi
+
+	if ! dialog_yesno " WARNING " "\nThis will OVERWRITE the bootloader (u-boot) on:\n\n  $warn\n\nwith u-boot from the running system. Your OS install and data are not touched.\n\nProceed?" "Flash bootloader" "Cancel" 13 74; then
+		return "$INSTALL_EX_OK"
+	fi
+
+	local rc_file; rc_file="$(mktemp)"
+	{
+		install_write_bootloader "$mode" "$target" "/" "${DIR:-/usr/lib/u-boot}" "$mtd_list"
+		echo "$?" >"$rc_file"
+	} | dialog_gauge " $title " "\nWriting u-boot to $target - please wait..." 9 74
+	local rc; rc="$(cat "$rc_file")"; rm -f "$rc_file"
+
+	if [[ "$rc" == "0" ]]; then
+		dialog_msgbox " $title " "\nBootloader (u-boot) written to $target successfully."
+	else
+		dialog_msgbox " $title " "\nFlashing FAILED (code $rc).\n\nSee ${INSTALL_LOG:-the install log} for details."
+	fi
+	return "$rc"
+}
+
+# Top-level action picker for the interactive installer: full install vs the
+# standalone bootloader flash. Built from what is ACTUALLY actionable on this
+# machine - so a board with no spare install target (e.g. booting from SPI with
+# root on NVMe, nothing left to install onto) just offers the u-boot update, and
+# a board that can only install (x86, no u-boot) goes straight to install. Only
+# shows the menu when both are possible; runs the single option directly otherwise.
+partitioner_menu() {
+	local title="Armbian installer"
+	local root_disk; root_disk="$(partitioner_root_disk)"
+
+	local -a menu=(); local nact=0
+	if [[ -n "$(install_detect_targets "$root_disk")" ]]; then
+		menu+=("install" "Install Armbian to a disk (SD / eMMC / NVMe / SATA / USB)"); ((nact++))
+	fi
+	if [[ "$(type -t write_uboot_platform)" == function || "$(type -t write_uboot_platform_mtd)" == function ]]; then
+		menu+=("bootloader" "Flash / update the bootloader (u-boot) only"); ((nact++))
+	fi
+
+	local act
+	if [[ "$nact" -eq 0 ]]; then
+		partitioner_tui; return "$?"                # nothing to flash & no target -> install shows its "no targets" msg
+	elif [[ "$nact" -eq 1 ]]; then
+		act="${menu[0]}"                            # only one action possible -> run it, skip the pointless menu
+	else
+		act=$(dialog_menu " $title " "\nWhat would you like to do?" 0 78 4 -- "${menu[@]}") || return "$INSTALL_EX_OK"
+	fi
+
+	case "$act" in
+		install)    partitioner_tui ;;
+		bootloader) partitioner_flash_uboot_tui ;;
+		*)          return "$INSTALL_EX_OK" ;;
+	esac
+}
+
 # ---- non-interactive CLI ----------------------------------------------------
 
 partitioner_cli_install() {
@@ -369,6 +482,52 @@ partitioner_cli_install() {
 	return "$rc"
 }
 
+# Non-interactive bootloader flash - the CLI counterpart of partitioner_flash_uboot_tui:
+#   armbian-install bootloader --target <mtd|/dev/mmcblkN> --yes
+# Writes the running system's u-boot to SPI/MTD or an SD/eMMC device, no rootfs.
+# Refuses to write without --yes (it overwrites the bootloader).
+partitioner_cli_flash() {
+	local target="" assume_yes=0
+	INSTALL_LOG="/var/log/armbian-install.log"
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--target) [[ $# -ge 2 ]] || { echo "armbian-install bootloader: --target requires a value" >&2; return "$INSTALL_EX_USAGE"; }
+			          target="$2"; shift 2 ;;
+			--yes|-y) assume_yes=1; shift ;;
+			*) echo "armbian-install bootloader: unknown option '$1'" >&2; return "$INSTALL_EX_USAGE" ;;
+		esac
+	done
+	[[ -n "$target" ]] || { echo "armbian-install bootloader: --target <mtd|/dev/mmcblkN> required" >&2; return "$INSTALL_EX_USAGE"; }
+
+	local mtd_list mode dev
+	mtd_list="$(partitioner_mtd_list)"
+	if [[ "$target" == "mtd" ]]; then
+		[[ "$(type -t write_uboot_platform_mtd)" == function && -n "$mtd_list" ]] \
+			|| { echo "armbian-install bootloader: no SPI/MTD u-boot target on this board" >&2; return "$INSTALL_EX_BOOTLOADER"; }
+		mode="mtd"; dev="/dev/${mtd_list%% *}"
+	else
+		[[ "$(type -t write_uboot_platform)" == function ]] \
+			|| { echo "armbian-install bootloader: board has no write_uboot_platform hook" >&2; return "$INSTALL_EX_BOOTLOADER"; }
+		# Only whole SD/eMMC disks - u-boot is dd'd at fixed offsets, so a partition
+		# or a non-boot disk (NVMe/SATA/USB) would get its partition table clobbered.
+		[[ "$target" =~ ^/dev/mmcblk[0-9]+$ ]] \
+			|| { echo "armbian-install bootloader: '$target' is not an SD/eMMC whole device (expected /dev/mmcblkN or 'mtd')" >&2; return "$INSTALL_EX_USAGE"; }
+		[[ -b "$target" ]] || { echo "armbian-install bootloader: '$target' is not a block device" >&2; return "$INSTALL_EX_USAGE"; }
+		mode="sd"; dev="$target"
+	fi
+
+	if [[ "$assume_yes" != 1 ]]; then
+		echo "armbian-install bootloader: refusing to write u-boot to $dev without --yes (overwrites the bootloader)." >&2
+		return "$INSTALL_EX_USAGE"
+	fi
+
+	echo "Writing u-boot to $dev..."
+	install_write_bootloader "$mode" "$dev" "/" "${DIR:-/usr/lib/u-boot}" "$mtd_list"
+	local rc=$?
+	[[ "$rc" == 0 ]] && echo "Done." || echo "Failed (code $rc). See ${INSTALL_LOG:-install log}." >&2
+	return "$rc"
+}
+
 # ---- --api helpers (machine-readable, for scripts and tests) ----------------
 
 partitioner_api() {
@@ -419,6 +578,11 @@ partitioner_help() {
 	Dual-boot with Windows 10/11 (UEFI):
 	  armbian-install --target /dev/sdX --boot uefi-dualboot --fs ext4 --size 32 --yes
 
+	Flash the bootloader (u-boot) only - no partitioning, no rootfs:
+	  armbian-install bootloader --target mtd --yes            # to SPI/MTD
+	  armbian-install bootloader --target /dev/mmcblk1 --yes   # to SD/eMMC
+	    writes the running system's u-boot; the interactive TUI offers it too
+
 	Machine-readable:
 	  armbian-install --api detect
 	  armbian-install --api plan --target /dev/sdX --boot uefi --fs ext4
@@ -437,7 +601,7 @@ module_partitioner() {
 
 	case "$1" in
 		"${commands[0]}"|"")              # run (or bare invocation) -> TUI
-			partitioner_tui ;;
+			partitioner_menu ;;
 		"${commands[1]}")                 # install -> non-interactive
 			shift; partitioner_cli_install "$@" ;;
 		"${commands[2]}")                 # detect -> engine inventory
@@ -446,6 +610,8 @@ module_partitioner() {
 			shift; partitioner_api plan "$@" ;;
 		"${commands[4]}"|-h|--help)       # help
 			partitioner_help ;;
+		"${commands[5]}")                 # bootloader -> flash u-boot only
+			shift; partitioner_cli_flash "$@" ;;
 		--target)                         # bare flags from the shim -> CLI
 			partitioner_cli_install "$@" ;;
 		--api)                            # bare --api from the shim
