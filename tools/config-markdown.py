@@ -94,7 +94,7 @@ def insert_images_and_header(item):
         if image_file.is_file():
             rel_path = f"tools/include/images/{item['id']}.{ext}"
             parts.append(f"\n<!--- section image START from {rel_path} --->")
-            parts.append(f"[![{item.get('short', item.get('description', ''))}](/images/{item['id']}.{ext})](#)")
+            parts.append(f"![{item.get('short', item.get('description', ''))}](/images/{item['id']}.{ext})")
             parts.append(f"<!--- section image STOP from {rel_path} --->\n")
             break
 
@@ -117,30 +117,9 @@ def create_markdown_user(item, level=1, show_meta=True, force_title=False, skip_
             md.append(f"\n{item.get('description')}\n")
         md.extend(insert_images_and_header(item))
 
-    if show_meta and level == 1:
-        if item.get('status'):
-            md.append(f"__Status:__ {item['status']}  ")
-        if item.get('module'):
-            module = item['module']
-            if module in module_options:
-                architecture = module_options[module].get('arch')
-                formatted_arch = format_arch_labels(architecture)
-                if formatted_arch:
-                    md.append(f"__Architecture:__ {formatted_arch}  ")
-                maintainer = module_options[module].get('maintainer')
-                if maintainer:
-                    md.append(f"__Maintainer:__ {maintainer}  ")
-                doc_link = module_options[module].get('doc_link')
-                if doc_link:
-                    md.append(f"__Documentation:__ [Link]({doc_link})  ")
-        # Container type badge (shown regardless of module_options)
-        container_badge = format_container_badge(item)
-        if container_badge:
-            md.append(f"__Installation:__ {container_badge}  ")
-
     if item.get('command') and not skip_commands:
         cmd = item['command'][0] if isinstance(item['command'], list) else item['command']
-        md.append(f"\n~~~ custombash\narmbian-config --cmd {item['id']}\n~~~\n")
+        md.append(f"\n~~~ bash\narmbian-config --cmd {item['id']}\n~~~\n")
 
         footer_file = Path(__file__).parent / 'include' / 'markdown' / f"{item['id']}-footer.md"
         if footer_file.is_file():
@@ -165,43 +144,12 @@ def create_markdown_user(item, level=1, show_meta=True, force_title=False, skip_
                     if sub_item.get('short') and sub_item.get('description') and sub_item.get('short') != sub_item.get('description'):
                         md.append(f"\n{sub_item.get('description')}\n")
                     md.extend(insert_images_and_header(sub_item))
-
-                    # Insert unified edit line for header/footer only once
-                    base_name = sub_item['id']
-                    edit_parts = []
-                    for section in ['footer', 'header']:
-                        section_filename = f"{base_name}-{section}.md"
-                        section_file = Path(__file__).parent / 'include' / 'markdown' / section_filename
-                        rel_path = f"tools/include/markdown/{section_filename}"
-                        edit_mode = "edit" if section_file.is_file() else "new"
-                        url = f"https://github.com/armbian/configng/{edit_mode}/main/{rel_path}"
-                        edit_parts.append(f"[{section}]({url})")
-                    md.append(f"__Edit:__ {' '.join(edit_parts)}  ")
-
-                    if sub_item.get('status'):
-                        md.append(f"__Status:__ {sub_item['status']}  ")
-                    module = sub_item.get('module')
-                    if module in module_options:
-                        arch = module_options[module].get('arch')
-                        if arch:
-                            md.append(f"__Architecture:__ {format_arch_labels(arch)}  ")
-                        maintainer = module_options[module].get('maintainer')
-                        if maintainer:
-                            md.append(f"__Maintainer:__ {maintainer}  ")
-                        doc_link = module_options[module].get('doc_link')
-                        if doc_link:
-                            md.append(f"__Documentation:__ [Link]({doc_link})  ")
-                    # Container type badge (shown regardless of module_options)
-                    container_badge = format_container_badge(sub_item)
-                    if container_badge:
-                        md.append(f"__Installation:__ {container_badge}  ")
                     first_sub = False
 
                 if sub_item.get('command'):
                     cmd = sub_item['command'][0] if isinstance(sub_item['command'], list) else sub_item['command']
-                    fence = "custombash" if first_command else "bash"
-                    title = "" if fence == "custombash" else f" title=\"{sub_item.get('short', sub_item.get('description', ''))}:\""
-                    md.append(f"\n~~~ {fence}{title}\narmbian-config --cmd {sub_item['id']}\n~~~\n")
+                    title = f" title=\"{sub_item.get('short', sub_item.get('description', ''))}\""
+                    md.append(f"\n~~~ bash{title}\narmbian-config --cmd {sub_item['id']}\n~~~\n")
                     first_command = False
 
                     footer_file = Path(__file__).parent / 'include' / 'markdown' / f"{sub_item['id']}-footer.md"
@@ -216,6 +164,324 @@ def create_markdown_user(item, level=1, show_meta=True, force_title=False, skip_
 
     return '\n'.join(md)
 
+def slugify(text):
+    """netdata -> netdata, 'Uptime Kuma' -> uptime-kuma, NetAlertX -> netalertx."""
+    return re.sub(r'[^a-z0-9]+', '-', (text or '').lower()).strip('-')
+
+
+def category_slug(category):
+    """Category hub URL slug: WebHosting -> web-hosting, DNS -> dns. Hubs are
+    published next to the app pages they list, at /software/<slug>/."""
+    return slugify(re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', category['id']))
+
+
+def yaml_quote(text):
+    """Double-quote a value for YAML front-matter. mkdocs parses front-matter as
+    YAML, where an unquoted scalar containing ': ' (colon-space) is read as a
+    nested mapping and the value is lost — so titles/descriptions MUST be quoted."""
+    return '"' + str(text).replace('\\', '\\\\').replace('"', '\\"') + '"'
+
+
+def _group_key(item):
+    """Identity that ties an app's install/remove/purge items together: the
+    module referenced by the item's command (e.g. `module_qbittorrent install`
+    -> module_qbittorrent). Grouping on the module (rather than an id prefix)
+    keeps distinct apps apart even if their ids share a prefix, while still
+    grouping an app's own actions. Falls back to the item id so unrelated
+    generic-command items never merge."""
+    cmd = item.get('command')
+    cmd = (cmd[0] if isinstance(cmd, list) else cmd) or ''
+    m = re.search(r'module_[A-Za-z0-9_-]+', cmd)
+    return m.group(0) if m else item.get('id', '')
+
+
+def group_software(sub_items):
+    """Split a category's flat `sub` list into per-software groups, one group per
+    app (keyed by its command module via _group_key). The name-bearing item
+    leads each group; its remove/purge actions follow. Returns a list of groups."""
+    order, groups = [], {}
+    for it in sub_items:
+        key = _group_key(it)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(it)
+    result = []
+    for key in order:
+        g = groups[key]
+        if not g[0].get('short'):   # lead with the name-bearing (install) item
+            lead = next((i for i in g if i.get('short')), None)
+            if lead:
+                g = [lead] + [x for x in g if x is not lead]
+        if g[0].get('short'):
+            result.append(g)
+    return result
+
+
+def _blurb(item_id):
+    """First real sentence of an app's header/footer markdown, for when the JSON
+    description is just the app name. Strips HTML comments and edit/meta lines."""
+    for section in ('header', 'footer'):
+        f = MARKDOWN_DIR / f"{item_id}-{section}.md"
+        if not f.is_file():
+            continue
+        text = re.sub(r'<!--.*?-->', '', f.read_text(), flags=re.DOTALL)
+        lines = [ln.strip() for ln in text.splitlines()
+                 if ln.strip() and not ln.strip().startswith(('__', '#', '!', '['))]
+        if not lines:
+            continue
+        # first *declarative* sentence (skip a rhetorical "What is X?" lead-in)
+        for sentence in re.split(r'(?<=[.!?])\s', ' '.join(lines)):
+            sentence = sentence.strip()
+            if len(sentence) > 20 and not sentence.endswith('?'):
+                return sentence[:160].rstrip()
+    return None
+
+
+def _page_image_path(item):
+    """Return the site-absolute path of the item's logo, or None."""
+    for ext in ('png', 'webp'):
+        if (IMAGES_DIR / f"{item['id']}.{ext}").is_file():
+            return f"/images/{item['id']}.{ext}"
+    return None
+
+
+def render_software_page(group, category):
+    """One installable app -> a standalone page keyed by its slug, with SEO
+    front-matter (title + description + og image) pulled from the JSON entry
+    that already exists. The body reuses the normal per-software rendering."""
+    install = group[0]
+    short = install.get('short') or install.get('description') or install['id']
+    slug = slugify(short)
+    desc = (install.get('description') or short).strip().rstrip('.')
+    # drop a redundant leading app name ("Netdata - monitoring..." -> "monitoring...")
+    desc = re.sub(rf'^{re.escape(short)}\s*[-–:]\s*', '', desc, flags=re.IGNORECASE).strip()
+    # when the JSON description is just the app name, borrow the header/footer blurb
+    if not desc or desc.lower() == short.lower():
+        desc = _blurb(install['id']) or short
+
+    # Keyword-bearing description: the app name + what it is + the platform.
+    # People search "install <app> <board> arm64", not the category name.
+    meta_desc = f"Install and run {short} on Armbian — {desc.rstrip('.')}. Runs on ARM64 and x86 single-board computers."
+
+    # Browser <title> targets the real query ("install <app> on armbian"); the
+    # short nav label stays just the app name via `title`.
+    seo_title = f"Install {short} on Armbian"
+    fm = ['---', f"title: {yaml_quote(short)}", f"seo_title: {yaml_quote(seo_title)}",
+          f"description: {yaml_quote(meta_desc)}"]
+    img = _page_image_path(install)
+    if img:
+        fm.append(f"image: {img}")
+    # Category id ties the page to its section in the left nav (the docs repo
+    # groups app pages under their category from this field) and to the hub page.
+    fm.append(f"category: {yaml_quote(category['id'])}")
+    fm += ['comments: true', '---', '']
+
+    body = [f"# {short}\n"]
+    # Show one description: the fuller header blurb is rendered inside the group;
+    # only add the short JSON line when there is no header file (avoids the
+    # "monitoring real-time metrics" + full-paragraph duplication).
+    has_header = (MARKDOWN_DIR / f"{install['id']}-header.md").is_file()
+    if not has_header and desc and desc.lower() != short.lower():
+        body.append(f"\n{desc}\n")
+    cat_short = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', category['id'])
+    menu_path = f"Software → {cat_short} → {short}"
+    body.append(render_software_group(group, level=1, with_title=False, menu_path=menu_path))
+
+    # Simple category back-link (plain text, no heading — so it doesn't add a
+    # TOC entry). The category's other apps are already in the left nav.
+    cat_name = category.get('description', category['id'])
+    body.append(f"\n---\n\n_Part of Armbian's [{cat_name}](/software/{category_slug(category)}/) software._")
+    return slug, '\n'.join(fm) + '\n'.join(body) + '\n'
+
+
+def render_category_index(category):
+    """A category page becomes an internal-linking hub: a short intro plus a
+    list that links out to each app's own page, instead of a wall of anchors."""
+    cat_desc = category.get('description', category['id'])
+    # short label for the nav / <title> ("HomeAutomation" -> "Home Automation");
+    # the descriptive sentence stays as the page H1 below.
+    cat_short = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', category['id'])
+    groups = group_software(category.get('sub', []))
+    meta_desc = f"{cat_desc} for Armbian on ARM64 and x86 single-board computers: " \
+                + ", ".join(g[0]['short'] for g in groups) + "."
+    seo_title = f"{cat_short} apps for Armbian"
+    # `hub: true` marks this as a category hub rather than an app page:
+    # documentation/tools/build-software-nav.py keys off it to keep hubs out of
+    # the left nav (their apps are listed there already) without warnings.
+    fm = ['---', f"title: {yaml_quote(cat_short)}", f"seo_title: {yaml_quote(seo_title)}",
+          f"description: {yaml_quote(meta_desc[:180])}", 'hub: true', 'comments: true', '---', '']
+    md = [f"# {cat_desc}\n"]
+    md.extend(insert_images_and_header(category))
+    md.append("\nInstall and configure these applications through "
+              "[`armbian-config`](/config/) or from the pages below:\n")
+    for g in groups:
+        short = g[0]['short']
+        one_liner = (g[0].get('description') or short).strip().rstrip('.')
+        md.append(f"- [{short}](/software/{slugify(short)}/) — {one_liner}")
+    return '\n'.join(fm) + '\n'.join(md) + '\n'
+
+
+def _footer_md(item_id):
+    """The included footer block for a command, or ''."""
+    f = MARKDOWN_DIR / f"{item_id}-footer.md"
+    if not f.is_file():
+        return ""
+    rel = f"tools/include/markdown/{item_id}-footer.md"
+    return f"\n<!--- footer START from {rel} --->\n{f.read_text()}\n<!--- footer STOP from {rel} --->\n"
+
+
+def _image_md(item):
+    """Just the logo image (split out so a facts bar can sit under it), or ''."""
+    for ext in ('png', 'webp'):
+        if (IMAGES_DIR / f"{item['id']}.{ext}").is_file():
+            rel = f"tools/include/images/{item['id']}.{ext}"
+            alt = item.get('short', item.get('description', ''))
+            return (f"\n<!--- section image START from {rel} --->\n"
+                    f"![{alt}](/images/{item['id']}.{ext}){{ .app-logo }}\n"
+                    f"<!--- section image STOP from {rel} --->\n")
+    return ""
+
+
+def _header_blurb_md(item):
+    """Just the header description block, or ''."""
+    f = MARKDOWN_DIR / f"{item['id']}-header.md"
+    if not f.is_file():
+        return ""
+    rel = f"tools/include/markdown/{item['id']}-header.md"
+    return f"\n<!--- header START from {rel} --->\n{f.read_text()}\n<!--- header STOP from {rel} --->\n"
+
+
+def render_software_group(sub_items, level=1, with_title=True, menu_path=None):
+    """Render one app: logo + description, then an action-first layout — the
+    install command (with an armbian-config menu-path hint) comes first, the
+    Status/Architecture/Maintainer metadata sits below it, and remove/purge
+    follow. `with_title=False` skips the H1 (the page adds its own); `menu_path`
+    (e.g. "Software → Monitoring → Netdata") drives the hint line."""
+    lead = sub_items[0]
+    md = []
+    if with_title:
+        md.append(f"{'#' * level} {lead.get('short', lead.get('description', ''))}\n")
+        if lead.get('short') and lead.get('description') and lead.get('short') != lead.get('description'):
+            md.append(f"\n{lead.get('description')}\n")
+
+    md.append(_image_md(lead))   # logo
+
+    # Iconized one-line facts bar, directly under the logo. Only the facts that
+    # help someone decide/use: hardware it runs on, how it is packaged, where
+    # the docs are, and how to reach it. Each icon carries a hover title.
+    meta = []
+    module = lead.get('module')
+    opts = module_options.get(module, {})
+    if opts.get('arch'):
+        meta.append(f':material-cpu-64-bit:{{ title="Architecture" }} {format_arch_labels(opts["arch"])}')
+    badge = format_container_badge(lead)
+    if badge:
+        meta.append(badge)
+    if opts.get('doc_link'):
+        meta.append(f':material-book-open-variant:{{ title="Documentation" }} [Documentation]({opts["doc_link"]})')
+    ports = (opts.get('port') or '').split()
+    if ports:
+        scheme = opts.get('protocol', 'http')   # http default; https / redis / postgresql / ...
+        # only the first port — the web / main protocol; extra ports (sync,
+        # discovery, ...) just clutter the one-line facts bar.
+        meta.append(f':material-lan-connect:{{ title="Access port" }} '
+                    f'`{scheme}://<your.IP>:{ports[0]}`')
+    if meta:
+        md.append('\n' + ' · '.join(meta) + '\n')
+
+    md.append(_header_blurb_md(lead))   # description
+
+    def api_cmd(item):
+        # Machine/API form: `armbian-config --api <helper>` runs the helper
+        # directly (e.g. "module_netdata install") — readable and scriptable,
+        # unlike the opaque menu id used by `--cmd`.
+        c = item['command']
+        return (c[0] if isinstance(c, list) else c).strip()
+
+    def action_label(item):
+        # Human label for the commands table. Prefer the item description; for
+        # the install action (a plain "install") just say "Install"; fall back
+        # to the command's action word (server/client/qrcode/...).
+        cmd = api_cmd(item)
+        arg = cmd.split(None, 1)[1].strip() if ' ' in cmd else ''
+        if arg == 'install':
+            return 'Install'
+        desc = (item.get('description') or '').strip()
+        short = item.get('short') or ''
+        if desc and desc.lower() != short.lower():
+            return desc
+        return (arg or short).replace('_', ' ').strip().capitalize() or 'Run'
+
+    cmd_items = [s for s in sub_items if s.get('command')]
+
+    app_short = lead.get('short') or lead.get('description') or lead['id']
+
+    # install (first command) — with a friendly menu path, then the metadata
+    if cmd_items:
+        install = cmd_items[0]
+        iarg = api_cmd(install).split(None, 1)[1].strip() if ' ' in api_cmd(install) else ''
+        ititle = "CLI install" if iarg == 'install' else action_label(install)
+        if menu_path:
+            md.append(f"\nInstall from **[armbian-config](/config/) → {menu_path}**")
+        md.append(f"\n~~~ custombash title=\"{ititle}\"\narmbian-config --cmd {install['id']}\n~~~\n")
+        md.append(_footer_md(install['id']))
+
+    # The module's full command surface — read from its own `example` list
+    # (exactly what `armbian-config --api <module> help` prints), not just the
+    # menu's install/remove/purge subset. Label with the richer menu
+    # descriptions where we have them; fall back to the subcommand name.
+    module = lead.get('module')
+    opts = module_options.get(module, {})
+    fn = opts.get('feature') or module
+    subcmds = opts.get('example', '').split()
+    menu_label = {}
+    for s in cmd_items:
+        parts = api_cmd(s).split(None, 1)
+        if len(parts) > 1:
+            menu_label[parts[1].strip()] = action_label(s)
+    if fn and subcmds:
+        md.append("\n**All `armbian-config` commands**\n")
+        md.append("| Action | Command |")
+        md.append("| --- | --- |")
+        for sub in subcmds:
+            label = menu_label.get(sub) or sub.capitalize()
+            md.append(f"| {label} | `armbian-config --api {fn} {sub}` |")
+    elif len(cmd_items) > 1:   # module has no `example` list — use the menu items
+        md.append("\n**All `armbian-config` commands**\n")
+        md.append("| Action | Command |")
+        md.append("| --- | --- |")
+        for s in cmd_items:
+            md.append(f"| {action_label(s)} | `armbian-config --api {api_cmd(s)}` |")
+
+    return '\n'.join(x for x in md if x)
+
+
+# Top-level menu id whose sub-categories are public "software" (SEO) pages.
+SOFTWARE_TOP_ID = "Software"
+
+
+def write_software_section(top):
+    """Emit, for the Software section: a per-app page docs/software/<slug>.md
+    (SEO front-matter, own URL) for every installable app, plus one hub page per
+    category at docs/software/<category-slug>.md linking to its apps. Returns the
+    app page count."""
+    apps_dir = DOCS_DIR / 'software'
+    apps_dir.mkdir(parents=True, exist_ok=True)
+    # clear stale pages so a renamed/removed slug does not linger as an orphan
+    for old in apps_dir.glob('*.md'):
+        old.unlink()
+
+    count = 0
+    for category in top.get('sub', []):
+        (apps_dir / f"{category_slug(category)}.md").write_text(render_category_index(category))
+        for group in group_software(category.get('sub', [])):
+            slug, page = render_software_page(group, category)
+            (apps_dir / f"{slug}.md").write_text(page)
+            count += 1
+    return count
+
+
 def write_technical_markdown_files(data):
     DOCS_DIR.mkdir(exist_ok=True)
     for item in data['menu']:
@@ -225,17 +491,77 @@ def write_technical_markdown_files(data):
         technical_md = create_markdown_technical(item)
         (item_dir / f"{item['id']}.technical.md").write_text('---\ncomments: true\n---\n\n' + anchors + technical_md)
 
+# Curated, keyword-rich SEO meta descriptions for the armbian-config section
+# pages (published at /config/<page>/). Keyed by menu item id: the System
+# sub-category pages plus the top-level Network/Localisation pages. Anything not
+# listed falls back to a template built from the item's own description, so new
+# pages still get a non-default description.
+USER_PAGE_DESCRIPTIONS = {
+    'Kernel':       "Switch kernels, install headers and manage device-tree overlays and the boot environment on Armbian single-board computers with armbian-config.",
+    'Desktops':     "Install, remove and configure desktop environments such as GNOME, KDE and XFCE on Armbian single-board computers with the armbian-config utility.",
+    'Storage':      "Install Armbian to eMMC, SATA or NVMe and set up ZFS, NFS and a read-only root filesystem on single-board computers using armbian-config.",
+    'Access':       "Manage the SSH daemon, harden remote access and enable two-factor authentication (2FA) on Armbian single-board computers with armbian-config.",
+    'User':         "Change the default login shell and customise the MOTD login banner on Armbian single-board computers with the armbian-config utility.",
+    'Updates':      "Apply OS updates and run Debian and Ubuntu distribution upgrades on Armbian single-board computers with the armbian-config utility.",
+    'Network':      "Configure wired and wireless networking on Armbian: Wi-Fi, static IP, DHCP and advanced bridged setups on single-board computers with armbian-config.",
+    'Localisation': "Set the timezone, system locale, language, keyboard layout and hostname on Armbian single-board computers with the armbian-config utility.",
+}
+
+
+def _user_meta_desc(item):
+    """SEO meta description for an armbian-config section page."""
+    if item['id'] in USER_PAGE_DESCRIPTIONS:
+        return USER_PAGE_DESCRIPTIONS[item['id']]
+    base = (item.get('description') or item.get('short') or item['id']).strip().rstrip('.')
+    return f"{base} on Armbian single-board computers, configured with the armbian-config utility."
+
+
+# Keyword-rich browser <title> (<= 60 chars) for the armbian-config section
+# pages. Read by the documentation theme's `seo_title` override; the short nav
+# label stays the page's own heading.
+USER_PAGE_TITLES = {
+    'Kernel':       "Armbian kernels, headers & device-tree overlays",
+    'Desktops':     "Install a desktop environment on Armbian",
+    'Storage':      "Armbian storage setup: eMMC, ZFS, NFS",
+    'Access':       "Armbian SSH daemon & 2FA remote access",
+    'User':         "Armbian login shell & MOTD settings",
+    'Updates':      "Update & upgrade Armbian",
+    'Network':      "Armbian networking: Wi-Fi & static IP",
+    'Localisation': "Armbian timezone, locale & keyboard",
+}
+
+
+def _user_seo_title(item):
+    if item['id'] in USER_PAGE_TITLES:
+        return USER_PAGE_TITLES[item['id']]
+    base = (item.get('short') or item.get('description') or item['id']).strip().rstrip('.')
+    suffix = " on Armbian"
+    return f"{base}{suffix}" if len(base) + len(suffix) <= 60 else base[:60].rstrip()
+
+
+def _user_front_matter(item):
+    return (f"---\nseo_title: {yaml_quote(_user_seo_title(item))}\n"
+            f"description: {yaml_quote(_user_meta_desc(item))}\ncomments: true\n---\n\n")
+
+
 def write_user_markdown_files(data):
     DOCS_DIR.mkdir(exist_ok=True)
     for item in data['menu']:
+        # The Software section is published as per-app pages (own URL + SEO
+        # front-matter) with category pages as link hubs; everything else keeps
+        # the original single-page-per-category layout.
+        if item['id'] == SOFTWARE_TOP_ID:
+            n = write_software_section(item)
+            print(f"Software section: {n} per-app pages + {len(item.get('sub', []))} category hubs.")
+            continue
         item_dir = DOCS_DIR / item['id']
         item_dir.mkdir(exist_ok=True)
         user_md = create_markdown_user(item)
-        (item_dir / f"{item['id']}.md").write_text('---\ncomments: true\n---\n\n' + user_md)
+        (item_dir / f"{item['id']}.md").write_text(_user_front_matter(item) + user_md)
         if 'sub' in item:
             for sub_item in item['sub']:
                 sub_user_md = create_markdown_user(sub_item)
-                (item_dir / f"{sub_item['id']}.md").write_text('---\ncomments: true\n---\n\n' + sub_user_md)
+                (item_dir / f"{sub_item['id']}.md").write_text(_user_front_matter(sub_item) + sub_user_md)
 
 def main():
     parser = argparse.ArgumentParser(description="Generate Markdown documentation.")

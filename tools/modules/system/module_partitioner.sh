@@ -112,6 +112,12 @@ partitioner_mtd_list() {
 #   * UEFI firmware present            -> GRUB EFI (uefi, +dualboot with Windows)
 #   * u-boot board (ARM)               -> media-specific u-boot modes
 #   * x86 legacy BIOS (no EFI/u-boot)  -> GRUB BIOS (grub-pc)
+#   * none of the above, Raspberry Pi-style firmware confirmed present
+#     (config.txt + cmdline.txt)       -> "sd" (root only) or "native" (full
+#     self-contained install - the board's own firmware can boot straight off
+#     the target, so the SD card becomes removable)
+#   * none of the above, board unrecognised -> "sd" only: it moves root and
+#     never touches the boot media, so it needs no board capability to be safe.
 partitioner_modes_for() {
 	local role="$1" disk="$2"
 	local -a m=()
@@ -134,7 +140,19 @@ partitioner_modes_for() {
 				# NVMe root): the board then boots straight from internal flash,
 				# independent of the removable media staying inserted — so offer
 				# it FIRST (top / default).
-				[[ "$(type -t write_uboot_platform_mtd)" == function && -n "$(partitioner_mtd_list)" ]] && m+=(mtd)
+				local have_mtd=""; have_mtd="$(partitioner_mtd_list)"
+				if [[ "$(type -t write_uboot_platform_mtd)" == function && -n "$have_mtd" ]]; then
+					m+=(mtd)
+				elif [[ -n "$have_mtd" ]]; then
+					# SPI/MTD flash is present but the board has no installer
+					# hook to write u-boot into it (e.g. SpacemiT K3: u-boot is
+					# flashed once via fastboot/DFU, not from the OS). The board
+					# still boots from that SPI and its boot script scans this
+					# NVMe/SATA/USB for /boot/boot.scr - so a fully self-contained
+					# install here (local /boot + root, no dependency on the
+					# removable media) is bootable. Offer it FIRST (top / default).
+					m+=(spi)
+				fi
 				m+=(sd)                       # keep boot on current media, root here
 				# ...or from an internal eMMC (if present and not the target).
 				local emmc; emmc="$(partitioner_emmc_device)"
@@ -144,8 +162,21 @@ partitioner_modes_for() {
 		esac
 	fi
 	# x86 legacy BIOS: neither EFI firmware nor a u-boot board.
+	local have_bios=0
 	if [[ ! -d /sys/firmware/efi && "$have_uboot" -eq 0 ]] && command -v grub-install >/dev/null 2>&1; then
-		m+=(bios)
+		m+=(bios); have_bios=1
+	fi
+	# No EFI, no u-boot hooks, no GRUB either: the board boots via its own
+	# firmware, and there is no board-provided bootloader-write hook to gate
+	# on. "sd" mode only moves root and leaves the current boot media
+	# untouched - but only when that media's config can be rewired
+	# (install_sd_capable). When that firmware is confirmed to be Raspberry
+	# Pi-style (reads a plain FAT32 boot partition off whatever bus it's on),
+	# "native" is safe too: a full self-contained install straight to the
+	# target, so the SD card becomes removable — offer it first.
+	if [[ ! -d /sys/firmware/efi && "$have_uboot" -eq 0 && "$have_bios" -eq 0 ]]; then
+		install_rpi_style_boot && m+=(native)
+		install_sd_capable && m+=(sd)
 	fi
 
 	# No writable boot mode for this firmware/disk: emit nothing so the caller
@@ -159,9 +190,11 @@ partitioner_mode_desc() {
 		uefi) echo "UEFI install with GRUB (ERASES the disk)" ;;
 		bios) echo "Legacy BIOS install with GRUB (ERASES the disk)" ;;
 		emmc) echo "Full install to this device (boot + system)" ;;
+		native) echo "Full install to this disk — SD card no longer needed" ;;
 		sd)   echo "Keep boot on current media, system on this disk" ;;
 		split-emmc) echo "Boot from eMMC, system on this disk (+ /emmc_storage)" ;;
 		mtd)  echo "Boot from SPI/MTD flash, system on this disk" ;;
+		spi)  echo "Boot from on-board SPI flash, full system on this disk" ;;
 		ufs)  echo "Boot idblock on UFS boot LUN, system on UFS" ;;
 		*)    echo "$1" ;;
 	esac
@@ -275,6 +308,10 @@ partitioner_tui() {
 		fi
 	elif [[ "$boot" == mtd ]]; then
 		if ! dialog_yesno " WARNING " "\nThis will ERASE /dev/$disk (Armbian root, $fs) AND overwrite the bootloader on SPI/MTD flash:\n  [ $(partitioner_mtd_list) ]\n\nProceed?" "Erase and install" "Cancel" 12 74; then
+			return "$INSTALL_EX_OK"
+		fi
+	elif [[ "$boot" == spi ]]; then
+		if ! dialog_yesno " WARNING " "\nThis will ERASE /dev/$disk and install a self-contained Armbian ($fs): boot + system both on this disk.\n\nu-boot is NOT touched - the board boots from its on-board SPI flash and loads /boot from this disk. The install stays bootable on its own (no dependency on removable media).\n\nProceed?" "Erase and install" "Cancel" 13 74; then
 			return "$INSTALL_EX_OK"
 		fi
 	else
@@ -438,7 +475,7 @@ partitioner_cli_install() {
 	done
 
 	[[ -b "$target" ]] || { echo "armbian-install: --target must be a block device" >&2; return "$INSTALL_EX_NODEV"; }
-	case "$boot" in uefi|uefi-dualboot|bios|emmc|sd|mtd|ufs|split-emmc) ;; *) echo "armbian-install: --boot must be one of uefi|uefi-dualboot|bios|emmc|sd|mtd|ufs|split-emmc" >&2; return "$INSTALL_EX_USAGE" ;; esac
+	case "$boot" in uefi|uefi-dualboot|bios|emmc|sd|mtd|spi|ufs|native|split-emmc) ;; *) echo "armbian-install: --boot must be one of uefi|uefi-dualboot|bios|emmc|sd|mtd|spi|ufs|native|split-emmc" >&2; return "$INSTALL_EX_USAGE" ;; esac
 	case "$fs"   in ext4|btrfs|f2fs) ;;     *) echo "armbian-install: --fs must be one of ext4|btrfs|f2fs" >&2; return "$INSTALL_EX_USAGE" ;; esac
 	[[ -f "$INSTALL_EXCLUDE" ]] || { echo "armbian-install: exclude list $INSTALL_EXCLUDE missing" >&2; return "$INSTALL_EX_TRANSFER"; }
 
@@ -492,7 +529,7 @@ partitioner_cli_flash() {
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 			--target) [[ $# -ge 2 ]] || { echo "armbian-install bootloader: --target requires a value" >&2; return "$INSTALL_EX_USAGE"; }
-			          target="$2"; shift 2 ;;
+				target="$2"; shift 2 ;;
 			--yes|-y) assume_yes=1; shift ;;
 			*) echo "armbian-install bootloader: unknown option '$1'" >&2; return "$INSTALL_EX_USAGE" ;;
 		esac
@@ -568,7 +605,10 @@ partitioner_help() {
 
 	Non-interactive:
 	  armbian-install --target /dev/sdX --boot <mode> --fs <fs> --yes
-	    --boot   uefi | uefi-dualboot | bios | emmc | sd | mtd | ufs | split-emmc
+	    --boot   uefi | uefi-dualboot | bios | emmc | sd | mtd | ufs | native | split-emmc
+	             native: full self-contained install on a board with no
+	                     u-boot/EFI/GRUB (e.g. Raspberry Pi) - target boots on
+	                     its own, no other media needed
 	             split-emmc: boot from eMMC, root on --target (NVMe/SATA/USB),
 	                         eMMC remainder mounted at /emmc_storage
 	    --fs     ext4 | btrfs | f2fs

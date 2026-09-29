@@ -84,6 +84,14 @@ else
 	update_submenu_data "Network" "N08" "IPV4"
 fi
 
+# Dual-booting alongside Windows is only possible on UEFI firmware, which is
+# also exactly what module_partitioner tests before offering the uefi-dualboot
+# mode. Mention it in the entry only where it can actually happen, rather than
+# advertising it on every board.
+if [ -d /sys/firmware/efi ]; then
+	update_sub_submenu_data "System" "Storage" "STO001" "Windows dual-boot"
+fi
+
 
 #
 # Sub sub menu updates
@@ -159,7 +167,7 @@ update_sub_submenu_data "Software" "Management" "NBOX02" "http://$LOCALIPADD:${m
 update_sub_submenu_data "Software" "Management" "APT002" "http://$LOCALIPADD:${module_options["module_aptcacherng,port"]}/acng-report.html"
 
 # Downloaders
-update_sub_submenu_data "Software" "Downloaders" "DOW002" "http://$LOCALIPADD:${module_options["module_qbittorrent,port"]%% *}" # removing second port from url
+update_sub_submenu_data "Software" "Downloaders" "QBT002" "http://$LOCALIPADD:${module_options["module_qbittorrent,port"]%% *}" # removing second port from url
 update_sub_submenu_data "Software" "Downloaders" "DEL002" "http://$LOCALIPADD:${module_options["module_deluge,port"]%% *}" # removing second port from url
 update_sub_submenu_data "Software" "Downloaders" "TRA002" "http://$LOCALIPADD:${module_options["module_transmission,port"]%% *}" # removing second port from url
 update_sub_submenu_data "Software" "Downloaders" "SABN02" "http://$LOCALIPADD:${module_options["module_sabnzbd,port"]}"
@@ -169,8 +177,9 @@ update_sub_submenu_data "Software" "Downloaders" "RAD002" "http://$LOCALIPADD:${
 update_sub_submenu_data "Software" "Downloaders" "BAZ002" "http://$LOCALIPADD:${module_options["module_bazarr,port"]}"
 update_sub_submenu_data "Software" "Downloaders" "LID002" "http://$LOCALIPADD:${module_options["module_lidarr,port"]}"
 update_sub_submenu_data "Software" "Downloaders" "RDR002" "http://$LOCALIPADD:${module_options["module_readarr,port"]}"
-update_sub_submenu_data "Software" "Downloaders" "DOW026" "http://$LOCALIPADD:${module_options["module_prowlarr,port"]}"
+update_sub_submenu_data "Software" "Downloaders" "PRW002" "http://$LOCALIPADD:${module_options["module_prowlarr,port"]}"
 update_sub_submenu_data "Software" "Downloaders" "JEL002" "http://$LOCALIPADD:${module_options["module_jellyseerr,port"]}"
 
 # web
 update_sub_submenu_data "Software" "WebHosting" "GHOST2" "http://$LOCALIPADD:${module_options["module_ghost,port"]}/ghost"
+update_sub_submenu_data "Software" "WebHosting" "HDOC02" "http://$LOCALIPADD:${module_options["module_hedgedoc,port"]}"

@@ -175,12 +175,16 @@ install_plan_layout() {
 	# don't force GPT - used to replicate the running image's table type on an
 	# eMMC/SD target so the board's u-boot can read it. Empty = default (msdos).
 	#
-	# boot_mode: uefi | emmc | sd | mtd | ufs
-	#   uefi  - full install to an internal disk with an ESP + GRUB
-	#   emmc  - full self-contained install (boot + root) to eMMC/SD
-	#   sd    - boot stays on removable media, only the rootfs lands on the target
-	#   mtd   - boot lives in SPI/MTD flash, only the rootfs lands on the target
-	#   ufs   - boot idblock on a UFS boot LUN, rootfs on the UFS general LUN
+	# boot_mode: uefi | emmc | sd | mtd | ufs | native
+	#   uefi   - full install to an internal disk with an ESP + GRUB
+	#   emmc   - full self-contained install (boot + root) to eMMC/SD
+	#   sd     - boot stays on removable media, only the rootfs lands on the target
+	#   mtd    - boot lives in SPI/MTD flash, only the rootfs lands on the target
+	#   ufs    - boot idblock on a UFS boot LUN, rootfs on the UFS general LUN
+	#   native - full self-contained install (boot + root) to any disk on a board
+	#            with no u-boot/EFI/GRUB - its own firmware reads a plain FAT32
+	#            boot partition directly off whatever bus it's on (Raspberry
+	#            Pi's SoC/EEPROM bootrom). No bootloader write needed.
 	#
 	# Emits a declarative plan on stdout:
 	#   table=gpt|msdos
@@ -210,7 +214,13 @@ install_plan_layout() {
 				parts+=("root:100%:${fs}:boot")
 			fi
 			;;
-		emmc)
+		emmc|spi)
+			# Both are fully self-contained targets (local /boot the board's
+			# u-boot reads directly). They differ only in where u-boot itself
+			# lives - on the eMMC's raw sectors for "emmc" (hence the 16MiB
+			# offset below), pre-flashed to on-board SPI/NOR for "spi" (so no
+			# raw reservation on this disk, 1MiB offset) - which is handled at
+			# the start-offset step, not here; the partition shape is identical.
 			if [[ "$fs" == "btrfs" || "$fs" == "f2fs" ]]; then
 				# u-boot cannot read btrfs/f2fs -> a dedicated ext4 /boot.
 				parts+=("boot:512MiB:ext4:boot")
@@ -234,6 +244,17 @@ install_plan_layout() {
 		sd|mtd|ufs)
 			# Only the rootfs lands here; boot lives elsewhere.
 			parts+=("root:100%:${fs}:boot")
+			;;
+		native)
+			# No u-boot involved, so no raw-sector reservation and no ext4-boot-
+			# as-directory shortcut either: the board's own firmware can only
+			# read a real FAT32 partition, never a directory inside another
+			# filesystem, regardless of what <fs> is. Partition 1 mirrors the
+			# shipped image's own boot partition (mirrors its position too, so
+			# the board's firmware finds it the same way); partition 2 is a
+			# normal root with /boot as an ordinary directory.
+			parts+=("firmware:512MiB:vfat:boot")
+			parts+=("root:100%:${fs}:")
 			;;
 		*)
 			install_log ERR "install_plan_layout: unknown boot mode '$boot_mode'"
@@ -298,9 +319,12 @@ install_apply_partitions() {
 	# serial) tagged "DVKR" at 7168, secure storage (HDCP/DRM keys) tagged
 	# "SSKR" at 8192. Nothing recreates either. Keep that window only when it
 	# is in use, so any other target is cleared exactly as before.
+	# tr -d '\0' only strips what bash would discard anyway: on a device without
+	# the magics those 4 bytes are usually NULs, and the bare substitution makes
+	# bash print "ignored null byte in input" over the installer dialog.
 	local keep_window="no"
-	[[ "$(dd if="$device" bs=1 skip=$(( 7168 * 512 )) count=4 2>/dev/null)" == "DVKR" ]] && keep_window="yes"
-	[[ "$(dd if="$device" bs=1 skip=$(( 8192 * 512 )) count=4 2>/dev/null)" == "SSKR" ]] && keep_window="yes"
+	[[ "$(dd if="$device" bs=1 skip=$(( 7168 * 512 )) count=4 2>/dev/null | tr -d '\0')" == "DVKR" ]] && keep_window="yes"
+	[[ "$(dd if="$device" bs=1 skip=$(( 8192 * 512 )) count=4 2>/dev/null | tr -d '\0')" == "SSKR" ]] && keep_window="yes"
 
 	wipefs -aq "$device" >>"$INSTALL_LOG" 2>&1 || true
 	if [[ "$keep_window" == "yes" ]]; then
@@ -492,6 +516,87 @@ install_rewrite_bootenv() {
 	fi
 }
 
+install_rewrite_extlinux() {
+	# install_rewrite_extlinux <file> <rootdev> [rootfstype]
+	# Repoint an extlinux/syslinux config (u-boot sysboot / distro boot) at
+	# <rootdev> - a "UUID=..." string or a device path. The kernel command line
+	# lives on the "append" line(s), so root= is substituted there (added when
+	# absent), and rootfstype= the same way when a fs is given.
+	#
+	# btrfs additionally needs rootflags=subvol=@: armbianEnv.txt boards get that
+	# from boot.cmd, which extlinux boards never run, so it is set here.
+	# Idempotent: re-running with the same values is a no-op. Pure text op.
+	local file="$1" rootdev="$2" fstype="${3:-}"
+	[[ -f "$file" ]] || return "$INSTALL_EX_BOOTCFG"
+	local flags=""
+	[[ "$fstype" == "btrfs" ]] && flags="subvol=@"
+	local tmp="${file}.new"
+	awk -v root="$rootdev" -v fstype="$fstype" -v flags="$flags" '
+		function set_token(line, key, val,   re) {
+			re = "(^|[ \t])" key "=[^ \t]*"
+			if (line ~ re) { sub(re, " " key "=" val, line) } else { line = line " " key "=" val }
+			return line
+		}
+		function drop_subvol(line,   tok, lead, pre, post, val, n, parts, i, kept) {
+			# Remove only the subvol= component of rootflags, not the whole
+			# token: rootflags=data=writeback is a legitimate ext4/f2fs option
+			# that several boards ship in their stock cmdline.
+			if (!match(line, /(^|[ \t])rootflags=[^ \t]*/)) return line
+			tok  = substr(line, RSTART, RLENGTH)
+			lead = (substr(tok, 1, 1) ~ /[ \t]/) ? substr(tok, 1, 1) : ""
+			pre  = substr(line, 1, RSTART - 1)
+			post = substr(line, RSTART + RLENGTH)
+			val  = substr(line, RSTART + length(lead) + 10, RLENGTH - length(lead) - 10)
+			n = split(val, parts, ",")
+			kept = ""
+			for (i = 1; i <= n; i++)
+				if (parts[i] !~ /^subvol=/)
+					kept = (kept == "") ? parts[i] : kept "," parts[i]
+			if (kept == "") return pre post
+			return pre lead "rootflags=" kept post
+		}
+		tolower($1) == "append" {
+			saw_append = 1
+			$0 = set_token($0, "root", root)
+			if (fstype != "") $0 = set_token($0, "rootfstype", fstype)
+			# Drop a subvol=@ left over from a previous btrfs root: a non-btrfs
+			# kernel rejects it and the root mount fails. Any other rootflags
+			# the board ships stay.
+			if (flags != "")       $0 = set_token($0, "rootflags", flags)
+			else if (fstype != "") $0 = drop_subvol($0)
+		}
+		{ print }
+		# No append line means root= was never set: the caller would otherwise
+		# carry on believing the target had been repointed.
+		END { if (!saw_append) exit 1 }
+	' "$file" >"$tmp" || { rm -f "$tmp"; return "$INSTALL_EX_BOOTCFG"; }
+	# Copy back rather than rename: keeps the original mode/owner/inode.
+	cat "$tmp" >"$file" || { rm -f "$tmp"; return "$INSTALL_EX_BOOTCFG"; }
+	rm -f "$tmp"
+	return 0
+}
+
+install_boot_cfg_file() {
+	# install_boot_cfg_file <boot_dir>
+	# Echo the boot config that <boot_dir> actually uses - armbianEnv.txt on most
+	# u-boot boards, extlinux/extlinux.conf on distro-boot ones (spacemit/riscv,
+	# some vendor kernels). Returns 1 and prints nothing when neither is present.
+	local d="$1"
+	[[ -f "$d/armbianEnv.txt" ]]        && { echo "$d/armbianEnv.txt"; return 0; }
+	[[ -f "$d/extlinux/extlinux.conf" ]] && { echo "$d/extlinux/extlinux.conf"; return 0; }
+	return 1
+}
+
+install_rewrite_bootcfg() {
+	# install_rewrite_bootcfg <file> <rootdev> [rootfstype]
+	# Point <file> at the new root, dispatching on which boot config it is.
+	local file="$1"; shift
+	case "$file" in
+		*/extlinux.conf) install_rewrite_extlinux "$file" "$@" ;;
+		*)               install_rewrite_bootenv "$file" "$@" ;;
+	esac
+}
+
 install_gen_fstab() {
 	# install_gen_fstab <root_uuid> <root_fs> [boot_uuid] [boot_fs] [esp_uuid] [swap_uuid]
 	# Emit a fresh fstab on stdout. root_* required; boot_* optional (separate
@@ -548,9 +653,12 @@ install_verify_boot_dir() {
 	compgen -G "$d/uImage*" >/dev/null 2>&1 && have_kernel=1
 	# Recognise every boot mechanism Armbian ships: boot.scr/boot.cmd (most
 	# u-boot), boot.ini (amlogic/odroid), uEnv.txt (k3/TI and others),
-	# extlinux.conf (distro boot), grub (x86/UEFI).
+	# extlinux.conf (distro boot), grub (x86/UEFI), config.txt+cmdline.txt in a
+	# nested firmware/ dir (native mode's Raspberry Pi-style FAT32 partition,
+	# mounted at boot/firmware under the directory checked here).
 	[[ -f "$d/boot.scr" || -f "$d/boot.cmd" || -f "$d/boot.ini" || -f "$d/uEnv.txt" \
-		|| -f "$d/extlinux/extlinux.conf" || -d "$d/grub" ]] && have_script=1
+		|| -f "$d/extlinux/extlinux.conf" || -d "$d/grub" \
+		|| ( -f "$d/firmware/config.txt" && -f "$d/firmware/cmdline.txt" ) ]] && have_script=1
 	if (( have_kernel == 0 || have_script == 0 )); then
 		install_log ERR "verify: '$d' is not bootable (kernel=$have_kernel script=$have_script)"
 		return "$INSTALL_EX_VERIFY"
@@ -584,7 +692,24 @@ install_bootloader_available() {
 	# bootable (e.g. a u-boot mode on x86, which has no write_uboot_platform).
 	case "$1" in
 		uefi|uefi-dualboot|bios) command -v grub-install >/dev/null 2>&1 ;;
-		emmc|sd) [[ "$(type -t write_uboot_platform)" == function ]] ;;
+		emmc)    [[ "$(type -t write_uboot_platform)" == function ]] ;;
+		# Neither "sd" nor "native" ever calls install_write_bootloader (see the
+		# boot_mode guard below) - "sd" only moves root and leaves the current
+		# boot media untouched; "native" writes a plain FAT32 boot partition the
+		# board's own firmware reads directly. "sd" writes no bootloader and only
+		# needs the current boot config to be rewirable (gated separately in the
+		# scenario pre-flight via install_sd_capable). "native" writes a plain
+		# FAT32 boot partition that only Raspberry Pi-style firmware reads, so it
+		# IS gated on that capability here.
+		sd)     return 0 ;;
+		# "spi" installs a self-contained target (local /boot + root here) but
+		# writes NO bootloader: u-boot already lives in the board's on-board
+		# SPI/NOR flash (pre-flashed via fastboot/DFU), and its boot script
+		# scans the attached media for /boot/boot.scr. So, like "sd", there is
+		# nothing to write and nothing to gate on - the target just has to be
+		# self-contained, which the layout guarantees.
+		spi)    return 0 ;;
+		native) install_rpi_style_boot ;;
 		mtd)     [[ "$(type -t write_uboot_platform_mtd)" == function ]] ;;
 		ufs)     [[ "$(type -t write_uboot_platform_ufs)" == function ]] ;;
 		*)       return 1 ;;
@@ -681,13 +806,18 @@ install_update_initramfs() {
 	# is actually present at boot. Armbian sets MODULES=list, which does NOT
 	# auto-include the root-fs module, and the installer inherits the source's
 	# initramfs (built for the source's root fs) - so an f2fs/btrfs root would be
-	# unbootable without this. Built-in filesystems (ext4/vfat) need nothing.
-	# Best effort: a failure is logged, not fatal.
+	# unbootable without this. Built-in filesystems (ext4/vfat) need nothing and
+	# return immediately. A failure here means the target CANNOT boot (build
+	# report: a btrfs native install "succeeded" then dropped to an (initramfs)
+	# shell with "mount ... failed: Invalid argument" - the btrfs module was
+	# simply missing from the initrd actually booted), so it is fatal - the
+	# caller must treat a non-zero return as an install failure, not a warning.
 	local rootfs="$1" fs="$2"
 	case "$fs" in ext2|ext3|ext4|vfat|msdos) return 0 ;; esac
-	command -v chroot >/dev/null 2>&1 || return 0
-	[[ -x "$rootfs/usr/sbin/update-initramfs" || -x "$rootfs/sbin/update-initramfs" ]] || {
-		install_log WARN "update-initramfs: not present in target; $fs root may not boot"; return 0; }
+	command -v chroot >/dev/null 2>&1 \
+		|| { install_log ERR "update-initramfs: no chroot on this system; $fs root would be unbootable"; return "$INSTALL_EX_BOOTCFG"; }
+	[[ -x "$rootfs/usr/sbin/update-initramfs" || -x "$rootfs/sbin/update-initramfs" ]] \
+		|| { install_log ERR "update-initramfs: not present in target; $fs root would be unbootable"; return "$INSTALL_EX_BOOTCFG"; }
 
 	# Force the fs module into the initramfs module list (list mode ships only
 	# what is listed here).
@@ -696,16 +826,49 @@ install_update_initramfs() {
 		echo "$fs" >>"$modfile"
 	fi
 
-	mkdir -p "$rootfs"/{dev,proc,sys}
+	mkdir -p "$rootfs"/{dev,proc,sys,run}
 	mount --bind /dev "$rootfs/dev"
 	mount --bind /proc "$rootfs/proc"
 	mount --bind /sys "$rootfs/sys"
+	mount --bind /run "$rootfs/run" 2>/dev/null || true
 	local rc=0
 	chroot "$rootfs" /bin/bash -c "update-initramfs -u -k all" >>"$INSTALL_LOG" 2>&1 || rc=1
+	mountpoint -q "$rootfs/run" && umount "$rootfs/run" 2>/dev/null
 	umount "$rootfs/sys" 2>/dev/null
 	umount "$rootfs/proc" 2>/dev/null
 	umount "$rootfs/dev" 2>/dev/null
-	[[ "$rc" == 0 ]] || install_log WARN "update-initramfs failed in target; $fs root may not boot"
+	if [[ "$rc" != 0 ]]; then
+		install_log ERR "update-initramfs failed in target; $fs root would be unbootable"
+		return "$INSTALL_EX_BOOTCFG"
+	fi
+
+	# Armbian's own /etc/initramfs/post-update.d/zzz-update-initramfs hook is
+	# supposed to copy the freshly-built initrd into boot/firmware/initrd.img
+	# automatically on boards that boot straight out of it (Raspberry Pi) - but
+	# a hook firing inside a bare chroot, with no real dpkg transaction or init
+	# system driving it, is not guaranteed to run the way it does on a live
+	# system. If boot/firmware/initrd.img is still the SOURCE's stale copy
+	# (rsynced verbatim earlier, built for the source's own root fs and never
+	# regenerated), the board boots the OLD initrd and fails exactly as if this
+	# whole function were a no-op - belt and braces: replace it directly.
+	if [[ -d "$rootfs/boot/firmware" ]]; then
+		local newest
+		newest="$(find "$rootfs/boot" -maxdepth 1 -name 'initrd.img-*' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
+		# No rebuilt initrd at all is itself a failure - update-initramfs just
+		# reported success above, so its absence means we can no longer prove
+		# ANY initrd (stale or fresh) is what boot/firmware/initrd.img holds.
+		[[ -n "$newest" ]] \
+			|| { install_log ERR "update-initramfs: no rebuilt initrd found under $rootfs/boot"; return "$INSTALL_EX_BOOTCFG"; }
+		if ! cmp -s "$newest" "$rootfs/boot/firmware/initrd.img" 2>/dev/null; then
+			install_log WARN "update-initramfs: boot/firmware/initrd.img was not refreshed by the post-update hook; copying $newest directly"
+			cp "$newest" "$rootfs/boot/firmware/initrd.img" \
+				|| { install_log ERR "update-initramfs: failed to copy $newest to boot/firmware/initrd.img"; return "$INSTALL_EX_BOOTCFG"; }
+		fi
+		# Verify rather than trust the copy: confirm boot/firmware/initrd.img
+		# now actually matches the freshly-built one before declaring success.
+		cmp -s "$newest" "$rootfs/boot/firmware/initrd.img" \
+			|| { install_log ERR "update-initramfs: boot/firmware/initrd.img still does not match the rebuilt initrd"; return "$INSTALL_EX_BOOTCFG"; }
+	fi
 	return 0
 }
 
@@ -761,6 +924,13 @@ _install_windows_parts() {
 	# size is sorted with tonumber (lsblk may emit it as a string, and a string
 	# sort would rank 781MB above 63GB). Emits two lines: esp=<dev|> windows=<dev|>
 	local json="$1" esp win
+	# The Windows volume is matched by fstype "ntfs" OR, when lsblk could not
+	# probe the filesystem (empty fstype - a real risk on freshly-attached or
+	# just-formatted disks where the udev/blkid cache has not caught up), by the
+	# GPT partition type "Microsoft basic data", which is read from the partition
+	# table and is therefore reliable when the fs probe is not. A genuinely
+	# encrypted volume (BitLocker) has a NON-empty, non-ntfs fstype, so it is not
+	# swept in here - it falls through to the BitLocker branch in the caller.
 	# editorconfig-checker-disable
 	esp="$(printf '%s' "$json" | jq -r '
 		[ .blockdevices[]?.children[]?
@@ -768,7 +938,9 @@ _install_windows_parts() {
 		  | .name ] | first // empty')"
 	win="$(printf '%s' "$json" | jq -r '
 		[ .blockdevices[]?.children[]?
-		  | select(.fstype == "ntfs")
+		  | select((.fstype == "ntfs")
+		           or (((.parttypename // "") | test("basic data"; "i"))
+		               and ((.fstype // "") == "")))
 		  | select(((.parttypename // "") | test("recovery"; "i")) | not) ]
 		| sort_by(.size | tonumber) | reverse | (.[0].name // empty)')"
 	# editorconfig-checker-enable
@@ -784,8 +956,12 @@ install_detect_windows() {
 	local disk="$1" json="${2:-}"
 	if [[ -z "$json" ]]; then
 		[[ -b "$disk" ]] || return "$INSTALL_EX_NODEV"
-		# GPT is required for a UEFI Windows install.
-		parted -sm "$disk" print 2>/dev/null | grep -q '^/dev/.*:gpt:' || return "$INSTALL_EX_NODEV"
+		# GPT is required for a UEFI Windows install. Read the label type with lsblk,
+		# which opens the disk read-only. parted opens it read-write even for `print`,
+		# and closing a write handle fires udev's watch rule: the partitions get
+		# re-probed, and the lsblk below sees empty FSTYPE/PARTTYPENAME while that
+		# runs, so a valid Windows disk is refused.
+		[[ "$(lsblk -ndo PTTYPE "$disk" 2>/dev/null)" == "gpt" ]] || return "$INSTALL_EX_NODEV"
 		json="$(lsblk -b -po NAME,FSTYPE,PARTTYPENAME,SIZE --json "$disk" 2>/dev/null)"
 	fi
 
@@ -839,8 +1015,8 @@ install_dualboot_blocker() {
 	json="$(lsblk -b -po NAME,FSTYPE,PARTTYPENAME,SIZE --json "$disk" 2>/dev/null)"
 	winpart="$(printf '%s' "$json" | jq -r '
 		[ .blockdevices[]?.children[]?
-		  | select(((.parttypename // "") | test("basic data"; "i")))
-		  | select(((.parttypename // "") | test("recovery"; "i")) | not) ]
+		| select(((.parttypename // "") | test("basic data"; "i")))
+		| select(((.parttypename // "") | test("recovery"; "i")) | not) ]
 		| sort_by(.size | tonumber) | reverse | (.[0].name // empty)' 2>/dev/null)"
 	# BitLocker FIRST (an encrypted volume also fails the ntfsresize probe below and
 	# must not be reported as "dirty"), scoped to THAT partition only: its lsblk/blkid
@@ -1022,6 +1198,76 @@ install_map_current_boot() {
 	return 0
 }
 
+install_boot_firmware_dir() {
+	# Where a raspi-firmware-style boot config (config.txt, cmdline.txt) lives:
+	# /boot/firmware if that's mounted separately (current layout), else /boot
+	# itself. Pure path logic except for the mount check.
+	if findmnt -no TARGET /boot/firmware >/dev/null 2>&1; then
+		echo /boot/firmware
+	else
+		echo /boot
+	fi
+}
+
+install_rpi_style_boot() {
+	# True if this board's firmware reads a static cmdline.txt straight off the
+	# boot partition (Raspberry Pi's SoC/EEPROM bootrom) rather than running a
+	# u-boot boot script that reads armbianEnv.txt. Detected by config.txt and
+	# cmdline.txt sitting together in the current boot tree - both are specific
+	# to this boot style and installed only by the raspi-firmware package.
+	local dir; dir="$(install_boot_firmware_dir)"
+	[[ -f "$dir/config.txt" && -f "$dir/cmdline.txt" ]]
+}
+
+install_sd_boot_dir() {
+	# The CURRENT media's boot directory. A function so tests can point it at a
+	# fixture instead of the real /boot.
+	echo /boot
+}
+
+install_sd_env_file() {
+	# The CURRENT media's boot config, rewritten by sd mode: armbianEnv.txt on
+	# most u-boot boards, extlinux/extlinux.conf on distro-boot ones. Prints
+	# nothing and returns 1 when the media carries neither.
+	install_boot_cfg_file "$(install_sd_boot_dir)"
+}
+
+install_sd_capable() {
+	# True when the CURRENT boot media's configuration can be pointed at a new
+	# root filesystem: either a u-boot-readable armbianEnv.txt to rewrite, or a
+	# Raspberry Pi-style static cmdline.txt. Guards both the mode menu and the
+	# scenario pre-flight so a board whose firmware reads neither (no EFI, no
+	# u-boot hook, no raspi firmware) never sees - or gets wiped by - sd mode.
+	[[ -f "$(install_sd_env_file)" ]] || install_rpi_style_boot
+}
+
+install_rewrite_rpi_cmdline() {
+	# install_rewrite_rpi_cmdline <cmdline_file> <root_uuid> [fs]
+	# Point a raspi-firmware cmdline.txt's root= at <root_uuid> ("UUID=..."),
+	# replacing whatever selector (LABEL=, UUID=, PARTUUID=, a device path) is
+	# there now. UUID rather than the image's built-in LABEL=armbi_root: once
+	# two disks both carry that label (the source media is still around), a
+	# label lookup is ambiguous - a UUID is unique by construction.
+	#
+	# [fs], if given, also replaces rootfstype=: initramfs-tools' /scripts/local
+	# mounts root with `mount -t "$ROOTFSTYPE"` whenever that key is set to
+	# anything other than empty/"auto" (see /usr/share/initramfs-tools/scripts/
+	# local) - a stale rootfstype=ext4 on a btrfs/f2fs root fails that mount
+	# with the exact same "Invalid argument" a missing kernel module would,
+	# regardless of root= being correct and the module being present.
+	local file="$1" root_uuid="$2" fs="${3:-}"
+	[[ -f "$file" ]] || return "$INSTALL_EX_BOOTCFG"
+	grep -q 'root=' "$file" || { install_log ERR "rpi-cmdline: no root= in $file"; return "$INSTALL_EX_BOOTCFG"; }
+	sed -i -E "s|root=[^ ]+|root=${root_uuid}|" "$file"
+	if [[ -n "$fs" ]]; then
+		if grep -q 'rootfstype=' "$file"; then
+			sed -i -E "s|rootfstype=[^ ]+|rootfstype=${fs}|" "$file"
+		else
+			sed -i -E "s|\$| rootfstype=${fs}|" "$file"
+		fi
+	fi
+}
+
 install_run_scenario() {
 	# install_run_scenario <boot_mode> <target_disk> <fs> <exclude_file> [uboot_dir]
 	#
@@ -1030,9 +1276,6 @@ install_run_scenario() {
 	# config -> bootloader -> verify) for one target. Side-effecting; validated by
 	# the loopback integration test and by board/KVM smoke before rollout.
 	local boot_mode="$1" disk="$2" fs="$3" exclude="$4" uboot_dir="${5:-${DIR:-}}"
-	# Deterministic tool output (parted/blkid flag names etc. are localised).
-	# The scenario is a terminal operation, so exporting here is fine.
-	export LC_ALL=C LANG=C
 	[[ -b "$disk" ]] || { install_log ERR "scenario: '$disk' is not a block device"; return "$INSTALL_EX_NODEV"; }
 	# SPI/MTD flash (mtdblockN) is a boot device, never a root target. Detection
 	# filters it from the menu, but refuse it here too so an explicit
@@ -1043,6 +1286,14 @@ install_run_scenario() {
 	# wiping anything - never destroy a disk we cannot finish installing to.
 	install_bootloader_available "$boot_mode" \
 		|| { install_log ERR "scenario: no bootloader method for '$boot_mode' on this system (u-boot hooks or grub-install missing) - refusing to modify $disk"; return "$INSTALL_EX_BOOTLOADER"; }
+	# sd mode rewrites the CURRENT boot media's configuration to point at the
+	# new root; check we have one to rewrite BEFORE wiping the target, or a
+	# firmware-booted board with neither armbianEnv.txt nor a raspi cmdline.txt
+	# would pass the check above, erase the disk, and only then fail.
+	if [[ "$boot_mode" == sd ]] && ! install_sd_capable; then
+		install_log ERR "scenario: sd mode but current boot config is neither armbianEnv.txt nor Raspberry Pi-style (config.txt+cmdline.txt) - refusing to modify $disk"
+		return "$INSTALL_EX_BOOTCFG"
+	fi
 	# mtd mode flashes u-boot to the SPI/MTD device list; refuse before wiping the
 	# target if the frontend handed us an empty list (e.g. the device vanished
 	# between menu and run) rather than failing after partitioning.
@@ -1067,7 +1318,7 @@ install_run_scenario() {
 	# source; the planner still upgrades to GPT when capacity/sector size demand.
 	local table_pref=""
 	case "$boot_mode" in
-		emmc|sd|mtd) table_pref="$(install_source_table_type)"
+		emmc|sd|mtd|spi|native) table_pref="$(install_source_table_type)"
 			[[ -n "$table_pref" ]] && install_log INFO "scenario: inheriting source partition table '$table_pref' for $boot_mode" ;;
 	esac
 
@@ -1077,15 +1328,16 @@ install_run_scenario() {
 
 	# Partition, then build the mkfs map + remember the role->device mapping.
 	local partmap; partmap="$(install_apply_partitions "$disk" "$plan")" || return "$INSTALL_EX_PARTITION"
-	local esp_dev="" boot_dev="" root_dev="" swap_dev="" role dev
+	local esp_dev="" boot_dev="" fw_dev="" root_dev="" swap_dev="" role dev
 	local mkfs_map=""
 	while read -r role dev; do
 		[[ -n "$dev" ]] || continue
 		case "$role" in
-			esp)  esp_dev="$dev";  mkfs_map+="esp $dev vfat"$'\n' ;;
-			boot) boot_dev="$dev"; mkfs_map+="boot $dev ext4"$'\n' ;;
-			swap) swap_dev="$dev"; mkfs_map+="swap $dev swap"$'\n' ;;
-			root) root_dev="$dev"; mkfs_map+="root $dev $fs"$'\n' ;;
+			esp)      esp_dev="$dev";  mkfs_map+="esp $dev vfat"$'\n' ;;
+			boot)     boot_dev="$dev"; mkfs_map+="boot $dev ext4"$'\n' ;;
+			firmware) fw_dev="$dev";   mkfs_map+="firmware $dev vfat"$'\n' ;;
+			swap)     swap_dev="$dev"; mkfs_map+="swap $dev swap"$'\n' ;;
+			root)     root_dev="$dev"; mkfs_map+="root $dev $fs"$'\n' ;;
 		esac
 	done <<<"$partmap"
 	[[ -b "$root_dev" ]] || { install_log ERR "scenario: no root partition created"; return "$INSTALL_EX_PARTITION"; }
@@ -1117,6 +1369,17 @@ install_run_scenario() {
 			mount "$boot_dev" "$mp/boot" \
 				|| { install_log ERR "scenario: mount boot partition $boot_dev failed"; rc=$INSTALL_EX_BOOTCFG; break; }
 		fi
+		# native mode's FAT32 boot partition mounts at /boot/firmware, mirroring
+		# the running system's own layout: the default install_populate_boot
+		# rsync of /boot (below) crosses into it the same way it would on the
+		# live system, populating both tiers - the ordinary /boot directory
+		# (kernel, armbianEnv.txt, ...) and the nested firmware partition
+		# (config.txt, cmdline.txt, the active kernel/dtbs) - in one pass.
+		if [[ -n "$fw_dev" ]]; then
+			mkdir -p "$mp/boot/firmware"
+			mount "$fw_dev" "$mp/boot/firmware" \
+				|| { install_log ERR "scenario: mount firmware partition $fw_dev failed"; rc=$INSTALL_EX_BOOTCFG; break; }
+		fi
 		install_populate_boot "$mp" "$copy_boot" || { rc=$INSTALL_EX_BOOTCFG; break; }
 
 		# fstab from the real, freshly-created UUIDs.
@@ -1127,6 +1390,10 @@ install_run_scenario() {
 		[[ -n "$swap_dev" ]] && swap_uuid="$(install_uuid "$swap_dev")"
 		install_gen_fstab "$root_uuid" "$fs" "$boot_uuid" ext4 "$esp_uuid" "$swap_uuid" >"$mp/etc/fstab" \
 			|| { rc=$INSTALL_EX_BOOTCFG; break; }
+		# native mode's firmware partition isn't one of install_gen_fstab's
+		# known slots (it's not read by any bootloader the way the ESP is) -
+		# append its entry directly, same as the swap carry-over just below.
+		[[ -n "$fw_dev" ]] && printf '%s\t/boot/firmware\tvfat\tdefaults,noatime\t0\t2\n' "$(install_uuid "$fw_dev")" >>"$mp/etc/fstab"
 		# No dedicated swap partition -> carry over the host's swap entries (e.g. a
 		# /var/swap swapfile) so the target keeps swap.
 		if [[ -z "$swap_dev" ]] && grep -qE '^[^#].*[[:space:]]swap[[:space:]]' /etc/fstab 2>/dev/null; then
@@ -1136,9 +1403,12 @@ install_run_scenario() {
 		# Point the board's boot env at the new root (u-boot scenarios only; GRUB
 		# modes are handled by grub-mkconfig).
 		case "$boot_mode" in
-			emmc|mtd|ufs)
-				local env_file="$mp/boot/armbianEnv.txt"
-				[[ -f "$env_file" ]] && install_rewrite_bootenv "$env_file" "$root_uuid" "$fs" ;;
+			emmc|mtd|ufs|spi)
+				local env_file
+				if env_file="$(install_boot_cfg_file "$mp/boot")"; then
+					install_rewrite_bootcfg "$env_file" "$root_uuid" "$fs" \
+						|| { install_log ERR "scenario: failed to point $env_file at new root $root_uuid"; rc=$INSTALL_EX_BOOTCFG; break; }
+				fi ;;
 			sd)
 				# Boot stays on the current media (the SD/eMMC the board booted
 				# from); only the rootfs moved to $disk. Two things are needed:
@@ -1148,21 +1418,52 @@ install_run_scenario() {
 				#   2. map that media's /boot into the target at /boot, so kernel and
 				#      initramfs upgrades on the target land where u-boot reads them.
 				# Without (1) the board keeps booting its old rootfs.
-				local env_file="/boot/armbianEnv.txt"
-				if [[ ! -f "$env_file" ]]; then
-					install_log ERR "scenario: sd mode but current boot env ($env_file) is missing; cannot make $disk bootable"
-					rc=$INSTALL_EX_BOOTCFG; break
-				fi
-				install_rewrite_bootenv "$env_file" "$root_uuid" "$fs" \
-					|| { install_log ERR "scenario: failed to point current boot env ($env_file) at new root $root_uuid"; rc=$INSTALL_EX_BOOTCFG; break; }
-				install_map_current_boot "$mp/etc/fstab" "$mp" \
-					|| { install_log ERR "scenario: failed to map current /boot into target fstab"; rc=$INSTALL_EX_BOOTCFG; break; }
-				install_log INFO "scenario: pointed current boot media ($env_file) at new root $root_uuid ($fs) and mapped its /boot into the target" ;;
+				# The two boot styles need different rewrites - select FIRST, or
+				# the armbianEnv.txt requirement below would block the Raspberry
+				# Pi path (which has no armbianEnv.txt at all).
+				if install_rpi_style_boot; then
+					# Raspberry Pi-style boards read root= directly from a static
+					# cmdline.txt on the CURRENT boot media, not from
+					# armbianEnv.txt via a u-boot script.
+					local rpi_cmdline; rpi_cmdline="$(install_boot_firmware_dir)/cmdline.txt"
+					install_rewrite_rpi_cmdline "$rpi_cmdline" "$root_uuid" "$fs" \
+						|| { install_log ERR "scenario: sd mode but failed to point current cmdline.txt ($rpi_cmdline) at new root $root_uuid"; rc=$INSTALL_EX_BOOTCFG; break; }
+					install_map_current_boot "$mp/etc/fstab" "$mp" \
+						|| { install_log ERR "scenario: failed to map current /boot into target fstab"; rc=$INSTALL_EX_BOOTCFG; break; }
+					install_log INFO "scenario: pointed current cmdline.txt ($rpi_cmdline) at new root $root_uuid (Raspberry Pi-style boot) and mapped its /boot into the target"
+				else
+					local env_file; env_file="$(install_sd_env_file)"
+					if [[ ! -f "$env_file" ]]; then
+						install_log ERR "scenario: sd mode but the current media has no boot config (armbianEnv.txt or extlinux/extlinux.conf); cannot make $disk bootable"
+						rc=$INSTALL_EX_BOOTCFG; break
+					fi
+					install_rewrite_bootcfg "$env_file" "$root_uuid" "$fs" \
+						|| { install_log ERR "scenario: failed to point current boot env ($env_file) at new root $root_uuid"; rc=$INSTALL_EX_BOOTCFG; break; }
+					install_map_current_boot "$mp/etc/fstab" "$mp" \
+						|| { install_log ERR "scenario: failed to map current /boot into target fstab"; rc=$INSTALL_EX_BOOTCFG; break; }
+					install_log INFO "scenario: pointed current boot media ($env_file) at new root $root_uuid ($fs) and mapped its /boot into the target"
+				fi ;;
+			native)
+				# Fully self-contained: the copy of cmdline.txt that
+				# install_populate_boot just placed at $mp/boot/firmware/ must
+				# point at THIS disk's own new root, not the source's.
+				local cmdline="$mp/boot/firmware/cmdline.txt"
+				[[ -f "$cmdline" ]] \
+					|| { install_log ERR "scenario: native mode but $cmdline missing after boot copy"; rc=$INSTALL_EX_BOOTCFG; break; }
+				install_rewrite_rpi_cmdline "$cmdline" "$root_uuid" "$fs" \
+					|| { install_log ERR "scenario: failed to point target cmdline.txt ($cmdline) at new root $root_uuid"; rc=$INSTALL_EX_BOOTCFG; break; }
+				local env_file="$mp/boot/armbianEnv.txt"
+				[[ -f "$env_file" ]] && install_rewrite_bootenv "$env_file" "$root_uuid" "$fs"
+				install_log INFO "scenario: pointed target cmdline.txt ($cmdline) at its own new root $root_uuid ($fs)" ;;
 		esac
 
 		# Rebuild the target initramfs so a module root fs (btrfs/f2fs) boots
-		# under MODULES=list. Only when the target owns its /boot.
-		[[ "$copy_boot" == 1 ]] && install_update_initramfs "$mp" "$fs"
+		# under MODULES=list. Only when the target owns its /boot. Fatal on
+		# failure - an unrebuilt initramfs means the target cannot boot at all,
+		# not a cosmetic problem to warn about and ship anyway.
+		if [[ "$copy_boot" == 1 ]]; then
+			install_update_initramfs "$mp" "$fs" || { rc=$INSTALL_EX_BOOTCFG; break; }
+		fi
 
 		echo 95
 		# ESP must be mounted before GRUB runs.
@@ -1170,8 +1471,13 @@ install_run_scenario() {
 		# In sd mode the bootloader already lives on the current boot media (left
 		# untouched) and the boot env there was rewired above; writing u-boot to
 		# $disk would target the wrong device - e.g. the Rockchip bootrom cannot
-		# load u-boot from NVMe/USB/SATA, so it would silently fail to boot.
-		if [[ "$boot_mode" != sd ]]; then
+		# load u-boot from NVMe/USB/SATA, so it would silently fail to boot. In
+		# native mode there is no bootloader to write at all - the board's own
+		# firmware already found and read $disk's new FAT32 boot partition.
+		# "spi" also skips the write: u-boot is pre-flashed to on-board SPI/NOR
+		# (via fastboot/DFU), so there is no bootloader to write to $disk - the
+		# board boots from SPI and its boot script finds this disk's /boot.
+		if [[ "$boot_mode" != sd && "$boot_mode" != native && "$boot_mode" != spi ]]; then
 			install_write_bootloader "$boot_mode" "$disk" "$mp" "$uboot_dir" "${INSTALL_MTD_LIST:-}" "${INSTALL_UFS_BOOT_LUN:-}" \
 				|| { rc=$INSTALL_EX_BOOTLOADER; break; }
 		fi
@@ -1187,6 +1493,7 @@ install_run_scenario() {
 
 	# Teardown (best effort).
 	sync
+	mountpoint -q "$mp/boot/firmware" && umount "$mp/boot/firmware" 2>/dev/null
 	mountpoint -q "$mp/boot/efi" && umount "$mp/boot/efi" 2>/dev/null
 	mountpoint -q "$mp/boot" && umount "$mp/boot" 2>/dev/null
 	umount "$mp" 2>/dev/null
@@ -1207,7 +1514,6 @@ install_run_split() {
 	# rootfs; its fstab mounts /boot from the eMMC boot partition. Restores the
 	# classic installer's "Boot from eMMC - system on SATA/USB/NVMe".
 	local boot_disk="$1" root_disk="$2" fs="$3" exclude="$4" uboot_dir="${5:-${DIR:-}}"
-	export LC_ALL=C LANG=C
 	[[ -b "$boot_disk" ]] || { install_log ERR "split: boot device '$boot_disk' is not a block device"; return "$INSTALL_EX_NODEV"; }
 	[[ -b "$root_disk" ]] || { install_log ERR "split: root device '$root_disk' is not a block device"; return "$INSTALL_EX_NODEV"; }
 	[[ "$root_disk" != /dev/mtdblock* ]] || { install_log ERR "split: root device '$root_disk' is SPI/MTD flash, not a valid install target"; return "$INSTALL_EX_NODEV"; }
@@ -1285,13 +1591,16 @@ install_run_split() {
 			printf '%s\t/emmc_storage\text4\tdefaults,nofail\t0\t2\n' "$storage_uuid" >>"$mp/etc/fstab"
 		fi
 
-		# Point the eMMC boot env at the root that now lives on the target device.
-		local env_file="$mp/boot/armbianEnv.txt"
-		[[ -f "$env_file" ]] && { install_rewrite_bootenv "$env_file" "$root_uuid" "$fs" \
-			|| { install_log ERR "split: failed to point $env_file at root $root_uuid"; rc=$INSTALL_EX_BOOTCFG; break; }; }
+		# Point the eMMC boot config at the root that now lives on the target device.
+		local env_file
+		if env_file="$(install_boot_cfg_file "$mp/boot")"; then
+			install_rewrite_bootcfg "$env_file" "$root_uuid" "$fs" \
+				|| { install_log ERR "split: failed to point $env_file at root $root_uuid"; rc=$INSTALL_EX_BOOTCFG; break; }
+		fi
 
 		# Module root fs (btrfs/f2fs) needs its driver in the eMMC /boot initramfs.
-		install_update_initramfs "$mp" "$fs"
+		# Fatal on failure - see install_run_scenario's identical guard.
+		install_update_initramfs "$mp" "$fs" || { rc=$INSTALL_EX_BOOTCFG; break; }
 
 		echo 95
 		# u-boot goes to the eMMC whole device (raw sectors), never the target.
@@ -1323,7 +1632,6 @@ install_run_dualboot() {
 	# ESP, and set up GRUB + os-prober dual-boot. The disk keeps its partition
 	# table and every existing partition.
 	local disk="$1" fs="$2" exclude="$3" want="$4"
-	export LC_ALL=C LANG=C
 	[[ -b "$disk" ]] || { install_log ERR "dualboot: '$disk' not a block device"; return "$INSTALL_EX_NODEV"; }
 	[[ -f "$exclude" ]] || { install_log ERR "dualboot: exclude '$exclude' missing"; return "$INSTALL_EX_TRANSFER"; }
 	[[ "$want" =~ ^[0-9]+$ && "$want" -gt 0 ]] || { install_log ERR "dualboot: bad size '$want'"; return "$INSTALL_EX_USAGE"; }
@@ -1375,7 +1683,8 @@ install_run_dualboot() {
 		root_uuid="$(install_uuid "$root_dev")"
 		esp_uuid="$(install_uuid "$esp")"
 		install_gen_fstab "$root_uuid" "$fs" "" ext4 "$esp_uuid" >"$mp/etc/fstab" || { rc=$INSTALL_EX_BOOTCFG; break; }
-		install_update_initramfs "$mp" "$fs"
+		# Fatal on failure - see install_run_scenario's identical guard.
+		install_update_initramfs "$mp" "$fs" || { rc=$INSTALL_EX_BOOTCFG; break; }
 		echo 95
 		mount "$esp" "$mp/boot/efi" || { install_log ERR "dualboot: mount ESP failed"; rc=$INSTALL_EX_BOOTLOADER; break; }
 		install_grub_install "$mp" dualboot || { rc=$INSTALL_EX_BOOTLOADER; break; }

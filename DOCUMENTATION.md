@@ -105,7 +105,7 @@ sudo armbian-config
 
 
   - ### Install to internal media, ZFS, NFS, read-only rootfs
-    - ### Install the running system to internal media (eMMC/NVMe/SATA/USB/UFS, or Windows dual-boot)
+    - ### Install the running system to internal media
     - ### Download a fresh, official Armbian OS image and write it to a device
     - ### Remove all downloaded Armbian images
     - ### Enable read only filesystem
@@ -121,6 +121,8 @@ sudo armbian-config
     - ### Memory management - enable features
     - ### Memory management - disable features
     - ### Memory management - tune parameters
+    - ### Tuning profiles - match kernel and CPU tuning to this machine's role
+    - ### Tuning profiles - show the active profile and live kernel values
 
 
   - ### Manage SSH daemon options, enable 2FA
@@ -437,13 +439,14 @@ sudo armbian-config
     - ### Ghost CMS install
     - ### Ghost CMS remove
     - ### Ghost CMS purge with data folder
+    - ### HedgeDoc collaborative markdown editor install
+    - ### HedgeDoc remove
+    - ### HedgeDoc purge with data folder
 
 
 
 
 - ## **Help** 
-
-  - ### Contribute
 
 ## Install
 Armbian installation
@@ -573,7 +576,7 @@ Outputs:
 	--cmd XFCE08 - Change XFCE to mid
 	--cmd XFCE09 - Change XFCE to full
     Storage - Install to internal media, ZFS, NFS, read-only rootfs
-	--cmd STO001 - Install the running system to internal media (eMMC/NVMe/SATA/USB/UFS, or Windows dual-boot)
+	--cmd STO001 - Install the running system to internal media (Windows dual-boot)
 	--cmd FLASH1 - Download a fresh, official Armbian OS image and write it to a device
 	--cmd FLASH2 - Remove all downloaded Armbian images
 	--cmd ROO001 - Enable read only filesystem
@@ -595,6 +598,8 @@ Outputs:
 	--cmd MEM001 - Memory management - enable features
 	--cmd MEM002 - Memory management - disable features
 	--cmd MEM003 - Memory management - tune parameters
+	--cmd TUNE01 - Tuning profiles - match kernel and CPU tuning to this machine's role
+	--cmd TUNE02 - Tuning profiles - show the active profile and live kernel values
     Access - Manage SSH daemon options, enable 2FA
 	--cmd ACC001 - Disable root login
 	--cmd ACC002 - Enable root login
@@ -703,12 +708,12 @@ Outputs:
 	--cmd DEL001 - Deluge BitTorrent client
 	--cmd DEL002 - Deluge remove (http://localhost:8112)
 	--cmd DEL003 - Deluge purge with data folder
-	--cmd DOW001 - qBittorrent BitTorrent client 
-	--cmd DOW002 - qBittorrent remove (http://localhost:8090)
-	--cmd DOW003 - qBittorrent purge with data folder
-	--cmd DOW025 - Prowlarr index manager and proxy for PVR
-	--cmd DOW026 - Prowlarr remove (http://localhost:9696)
-	--cmd DOW027 - Prowlarr purge with data folder
+	--cmd QBT001 - qBittorrent BitTorrent client 
+	--cmd QBT002 - qBittorrent remove (http://localhost:8090)
+	--cmd QBT003 - qBittorrent purge with data folder
+	--cmd PRW001 - Prowlarr index manager and proxy for PVR
+	--cmd PRW002 - Prowlarr remove (http://localhost:9696)
+	--cmd PRW003 - Prowlarr purge with data folder
 	--cmd JEL001 - Jellyseerr Jellyfin/Emby/Plex integration install
 	--cmd JEL002 - Jellyseerr remove (http://localhost:5055)
 	--cmd JEL003 - Jellyseerr purge with data folder
@@ -851,9 +856,10 @@ Outputs:
 	--cmd GHOST1 - Ghost CMS install
 	--cmd GHOST2 - Ghost CMS remove (http://localhost:9190/ghost)
 	--cmd GHOST3 - Ghost CMS purge with data folder
-
-  Help - About this tool
-    --cmd HLP001 - Contribute
+	--cmd HDOC01 - HedgeDoc collaborative markdown editor install
+	--cmd HDOC02 - HedgeDoc remove (http://localhost:3100)
+	--cmd HDOC03 - HedgeDoc purge with data folder
+  --cmd Help - About this tool
 ~~~
 
 ## Legacy options
@@ -1194,16 +1200,6 @@ Jobs:
 ~~~
 No commands available
 ~~~
-
-### HLP001
-
-Contribute
-
-Jobs:
-
-~~~
-show_message <<< $(about_armbian_configng)
-~~~
 ~~~
 </details>
 
@@ -1218,6 +1214,7 @@ These helper functions facilitate various operations related to job management, 
 | Generate a Help message legacy cli commands. | see_cli_legacy | @Tearran 
 | Detect first regular user for desktop setup | module_desktop_getuser | @igorpecovnik 
 | Run time variables Migrated procedures from Armbian config. | set_runtime_variables | @igorpecovnik 
+| Install git command-line tools | install remove status help | @armbian 
 | Install Ghost CMS container | install remove purge status help | @igorpecovnik 
 | Check for (Whiptail, DIALOG, READ) tools and set the user interface. |  | Tearran 
 | Toggle SSH lastlog | toggle_ssh_lastlog | @Tearran 
@@ -1268,6 +1265,7 @@ These helper functions facilitate various operations related to job management, 
 | Menu for armbianmonitor features | see_monitoring | @Tearran 
 | Switch system-wide login shell to ZSH | install remove status help | @igorpecovnik 
 | Install VS Code in browser container | install remove purge status help | @igorpecovnik 
+| Install HedgeDoc container (real-time collaborative markdown editor) | install remove purge status help | @armbian 
 | Remove package | pkg_remove nmap | @dimitry-ishenko 
 | Install Immich (photo and video backup solution) | install remove purge status help |  
 | Display a message box using the configured dialog tool | dialog_msgbox "Title" "Message" | @armbian 
@@ -1304,6 +1302,7 @@ These helper functions facilitate various operations related to job management, 
 | Generate jobs from JSON file. | generate_jobs_from_json | @Tearran 
 | Install Filebrowser container | install remove purge status help | @armbian 
 | Display a warning with a gauge for 10 seconds then continue |  | @igorpecovnik 
+| Kernel and CPU tuning profiles for the machine's actual role | select apply status list reset help | @igorpecovnik 
 | Install armbian router container | install remove purge status help | @armbian 
 | Install hastebin container | install remove purge status help | @armbian 
 | Fix dependency issues | pkg_fix | @igorpecovnik 

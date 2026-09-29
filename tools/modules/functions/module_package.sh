@@ -20,7 +20,25 @@ apt_operation_progress() {
 	local args=("$@")
 	local title="APT Operation"
 	local error_file=$(mktemp)
+	local rc_file=$(mktemp)
 	local exit_code
+
+	# Pre-flight self-heal: a previous apt/dpkg run cut short (power loss or a
+	# reboot mid-upgrade) leaves dpkg half-configured, and apt then refuses EVERY
+	# mutating operation with "dpkg was interrupted ... run 'dpkg --configure -a'".
+	# Repair it up front so install/upgrade/remove recover a board that is only
+	# in an interrupted state instead of failing on it. The exit-100 retry in
+	# pkg_install/pkg_remove can't cover this: the dialog_gauge path masks apt's
+	# real rc, so it never fires non-interactively (DIALOG=word). Cheap no-op when
+	# nothing is pending; read-only operations (update/clean) can't hit this.
+	case "$operation" in
+		install|upgrade|full-upgrade|remove|autopurge|fix-broken)
+			if [[ -n "$(ls -A /var/lib/dpkg/updates/ 2>/dev/null)" ]] \
+				|| dpkg --audit 2>/dev/null | grep -q .; then
+				DEBIAN_FRONTEND=noninteractive dpkg --configure -a >/dev/null 2>&1 || true
+			fi
+			;;
+	esac
 
 	case "$operation" in
 		update)
@@ -77,8 +95,11 @@ apt_operation_progress() {
 				apt_cmd="DEBIAN_FRONTEND=noninteractive apt-get -y $operation ${args[*]}"
 			fi
 
-			# Run apt command and capture output
-			eval "$apt_cmd" 2>&1 | while IFS= read -r line; do
+			# Run apt command. tee preserves apt's output for the error dialog;
+			# ${PIPESTATUS[0]} preserves apt's own exit code, which the outer
+			# `... | dialog_gauge` pipeline would otherwise hide behind
+			# dialog_gauge's (always-success) status - masking a failed apt run.
+			eval "$apt_cmd" 2>&1 | tee "$error_file" | while IFS= read -r line; do
 				# Parse apt output for progress indicators
 				if [[ "$line" =~ ^(Hit|Get|Reading|Download|Fetch|Hit|Preparing|Unpacking|Setting|Selecting|Processing) ]]; then
 					echo "XXX"
@@ -92,14 +113,24 @@ apt_operation_progress() {
 					echo "XXX"
 				fi
 			done
+			local apt_exit_code=${PIPESTATUS[0]}
+			echo "$apt_exit_code" > "$rc_file"
 
 			echo "XXX"
 			echo "100"
-			echo "$operation complete!"
+			if [[ $apt_exit_code -eq 0 ]]; then
+				echo "$operation complete!"
+			else
+				echo "$operation failed."
+			fi
 			echo "XXX"
 		) | dialog_gauge "$title" "Processing $operation..." 8 80
 
-		exit_code=$?
+		# Recover apt's real exit code (written inside the subshell); the outer
+		# pipe makes $? reflect dialog_gauge, not apt. A missing/garbled value
+		# (e.g. the dialog was cancelled) counts as a failure.
+		exit_code="$(cat "$rc_file" 2>/dev/null)"
+		[[ "$exit_code" =~ ^[0-9]+$ ]] || exit_code=1
 	fi
 
 	# Show any errors
@@ -109,7 +140,7 @@ apt_operation_progress() {
 		fi
 	fi
 
-	rm -f "$error_file"
+	rm -f "$error_file" "$rc_file"
 	return $exit_code
 }
 

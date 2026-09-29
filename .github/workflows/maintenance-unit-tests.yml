@@ -56,6 +56,13 @@ jobs:
 
       - name: "Make JSON ${{ steps.changed-files.outputs.all_changed_files }}"
         id: json
+        env:
+          # Consumed as env vars rather than interpolated into the script body,
+          # so a file name (or a dispatch payload) can never be treated as shell.
+          CHANGED_TESTS: "${{ steps.changed-files.outputs.all_changed_files }}"
+          # repository_dispatch payload from maintenance-build-debian.
+          CP_MODE: ${{ github.event.client_payload.mode }}
+          CP_CHANGED: ${{ github.event.client_payload.changed_tests }}
         run: |
 
           # Run each enabled test case against every arch its TESTARCH
@@ -91,17 +98,71 @@ jobs:
           )
 
           # read tests cases
-          # Run all tests on schedule, workflow_dispatch on main, or when no files changed
+          # Full matrix runs ONLY on the nightly schedule (and a manual
+          # workflow_dispatch on main). On a pull request, run just the changed
+          # tests/*.conf — and nothing at all when none changed. Previously a PR
+          # that touched no test file (e.g. a module-only change) fell through to
+          # "run everything", which is what made every PR run the whole matrix;
+          # the nightly cron is the safety net that exercises them all.
           run_all_tests=false
-          if [[ "${{ github.event_name }}" == "schedule" ]] || [[ "${{ github.ref_name }}" == "main" && "${{ github.event_name }}" == "workflow_dispatch" ]] || [[ "${{ steps.changed-files.outputs.any_changed }}" != "true" ]]; then
+          if [[ "${{ github.event_name }}" == "schedule" ]] || [[ "${{ github.ref_name }}" == "main" && "${{ github.event_name }}" == "workflow_dispatch" ]]; then
               run_all_tests=true
+          fi
+
+          # repository_dispatch is the post-merge trigger fired by
+          # maintenance-build-debian after a push to main. It carries a
+          # client_payload: CP_MODE="changed" with a JSON array CP_CHANGED
+          # runs exactly what the merge touched (a desktop PR -> its one
+          # desktop); CP_MODE="all" (a manual build, or a payload-less dispatch
+          # fired by hand) runs the whole suite. Read via env, never inlined into
+          # the script, so the payload can't inject shell.
+          #
+          # repository_dispatch can also be fired directly (bypassing the
+          # trusted producer workflow) with an arbitrary client_payload, so
+          # every entry is validated before it is ever used: must look like a
+          # bare tests/<name>.conf path (no traversal), and resolve to a real
+          # regular file actually under this checkout - anything else is
+          # dropped rather than reaching `source` below.
+          dispatch_changed=()
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+              if [[ "${CP_MODE}" == "changed" ]]; then
+                  entry=""
+                  while IFS= read -r entry; do
+                      [[ -n "${entry}" ]] || continue
+                      if [[ "${entry}" =~ ^tests/[^/]+\.conf$ ]] && [[ -f "${GITHUB_WORKSPACE}/${entry}" ]]; then
+                          resolved="$(realpath -e -- "${GITHUB_WORKSPACE}/${entry}")"
+                          case "${resolved}" in
+                              "${GITHUB_WORKSPACE}"/*) dispatch_changed+=("${entry}") ;;
+                              *) echo "::warning::ignoring dispatch changed_tests entry outside workspace: ${entry}" ;;
+                          esac
+                      else
+                          echo "::warning::ignoring invalid dispatch changed_tests entry: ${entry}"
+                      fi
+                  done < <(jq -r '.[]? // empty' <<< "${CP_CHANGED:-[]}" 2>/dev/null || true)
+              else
+                  run_all_tests=true
+              fi
           fi
 
           if [[ "$run_all_tests" == "true" ]]; then
               tests=($(grep -rwl tests/*.conf -e "ENABLED=true" | cut -d":" -f1))
+          elif [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+              # Post-merge: run just the tests the merge changed (from the payload).
+              if [[ ${#dispatch_changed[@]} -gt 0 ]]; then
+                  tests=($(grep -rwl -e "ENABLED=true" -- "${dispatch_changed[@]}" 2>/dev/null | cut -d":" -f1))
+              else
+                  tests=()
+              fi
           else
-              # Get changed test files using git to avoid parsing issues
-              changed_tests=($(cd "${GITHUB_WORKSPACE}" && git diff --name-only origin/main...HEAD | grep '^tests/.*\.conf$' || true))
+              # Take the list from tj-actions/changed-files above: it already
+              # resolved the PR base and fetched whatever history that needed.
+              # Re-deriving it here with `git diff origin/main...HEAD` dies with
+              # "no merge base" on the shallow default checkout, and the `|| true`
+              # turned that into an empty matrix that reported success.
+              changed_tests=()
+              while IFS= read -r changed_test; do
+                  [[ "${changed_test}" == tests/*.conf ]] && changed_tests+=("${changed_test}")
+              done <<< "${CHANGED_TESTS}"
               if [[ ${#changed_tests[@]} -gt 0 ]]; then
                   # Filter for ENABLED=true
                   tests=($(grep -rwl -e "ENABLED=true" -- "${changed_tests[@]}" 2>/dev/null | cut -d":" -f1))

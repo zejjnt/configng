@@ -36,7 +36,78 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
+      - name: "Determine changed test cases"
+        id: changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # On a push to main, ask the API which tests/*.conf the pushed range
+          # changed, so the dispatched unit-test run exercises exactly what the
+          # merge touched (a desktop PR -> its one desktop). A manual build
+          # (workflow_dispatch), a first push with an all-zero before-sha, or a
+          # failed/rate-limited API call can't be scoped this way, so signal
+          # "all" and let the suite run in full rather than silently testing
+          # nothing (a failed `gh api` must never masquerade as "no tests
+          # changed" - that would report post-merge green while testing zero
+          # test cases).
+          mode="all"
+          changed_json="[]"
+          if [[ "$EVENT" == "push" && ! "$BEFORE" =~ ^0+$ ]]; then
+              api_err="$(mktemp)"
+              if compare_json="$(gh api "repos/${REPO}/compare/${BEFORE}...${AFTER}" \
+                  --jq '{total: (.files | length), changed: [.files[].filename | select(startswith("tests/") and endswith(".conf"))]}' \
+                  2>"${api_err}")"; then
+                  # GitHub's compare endpoint hard-caps .files at 300 entries,
+                  # only on the first page - files beyond that aren't
+                  # retrievable at all, so pagination cannot recover them, and
+                  # the response carries no truncation flag. A merge that
+                  # large means any tests/*.conf past the cutoff is invisible
+                  # here, so a "changed" result built from a possibly-
+                  # truncated list could run less than the merge touched -
+                  # fall back to running everything instead of trusting it.
+                  total_files="$(jq -r '.total' <<< "${compare_json}")"
+                  if [[ "${total_files}" -ge 300 ]]; then
+                      echo "::warning::compare returned ${total_files} files (>= GitHub's 300-file cap, possibly truncated) - falling back to mode=all"
+                      mode="all"
+                      changed_json="[]"
+                  else
+                      mode="changed"
+                      changed_json="$(jq -c '.changed' <<< "${compare_json}")"
+                  fi
+              else
+                  echo "::warning::gh api compare failed, falling back to mode=all: $(cat "${api_err}")"
+                  mode="all"
+                  changed_json="[]"
+              fi
+              rm -f "${api_err}"
+          fi
+          # Build the whole client-payload as valid JSON here (via jq, so any
+          # filename - quotes, backslashes, spaces - is escaped correctly) and
+          # pass it through as one opaque string; the dispatch step below
+          # injects it unquoted rather than hand-interpolating fields into a
+          # JSON literal.
+          payload="$(jq -nc --arg mode "$mode" --argjson changed "$changed_json" '{mode: $mode, changed_tests: $changed}')"
+          # GitHub caps client_payload at 64KB; a merge with enough tests/*.conf
+          # entries could exceed that, and peter-evans/repository-dispatch would
+          # then reject the dispatch outright - so the post-merge run silently
+          # never fires. Fall back to mode=all (a small, fixed-size payload)
+          # before that happens rather than losing the dispatch entirely.
+          if [[ "$(LC_ALL=C printf '%s' "${payload}" | wc -c)" -ge 60000 ]]; then
+              echo "::warning::dispatch payload is too large (>=60000 bytes); falling back to mode=all"
+              mode="all"
+              changed_json="[]"
+              payload="$(jq -nc --arg mode "$mode" --argjson changed "$changed_json" '{mode: $mode, changed_tests: $changed}')"
+          fi
+          echo "payload=${payload}" >> "$GITHUB_OUTPUT"
+          echo "mode=${mode} changed_tests=${changed_json}"
+
       - name: "Run unit tests action"
         uses: peter-evans/repository-dispatch@v4
         with:
           event-type: "Unit tests"
+          client-payload: ${{ steps.changed.outputs.payload }}
