@@ -38,6 +38,9 @@ function module_redis () {
 			# snapshots, which for a multi-GB cache under constant writes would dump
 			# the whole dataset to disk every minute. Off by default: a general-purpose
 			# Redis (sessions, locks, queues) must never evict or lose data.
+			# At the cap every write evicts, and ccache objects are multi-MB, so
+			# evicted and overwritten values are freed on a background thread
+			# (lazyfree-*) instead of stalling the event loop that serves every client.
 			#   REDIS_MAXMEMORY=48gb armbian-config --api module_redis install
 			local -a server_args=()
 			if [[ -n "${REDIS_MAXMEMORY}" ]]; then
@@ -48,18 +51,23 @@ function module_redis () {
 					echo "Invalid REDIS_MAXMEMORY '${REDIS_MAXMEMORY}' (e.g. 512mb, 48gb)" >&2
 					return 1
 				fi
-				server_args=(redis-server --maxmemory "${REDIS_MAXMEMORY}" --maxmemory-policy allkeys-lru --save "" --appendonly no)
+				server_args=(redis-server --maxmemory "${REDIS_MAXMEMORY}" --maxmemory-policy allkeys-lru --save "" --appendonly no
+					--lazyfree-lazy-eviction yes --lazyfree-lazy-server-del yes)
 			fi
 
 			# Create base directory
 			docker_manage_base_dir create "$base_dir" || return 1
+
+			# No authentication: publish for this host and its containers only.
+			local -a publish
+			docker_publish_local publish "$port" 6379
 
 			docker_operation_progress run "$dockername" \
 				-d \
 				--name="$dockername" \
 				--net=lsio \
 				--restart=always \
-				-p "${port}:6379" \
+				"${publish[@]}" \
 				-v "${base_dir}/data:/data" \
 				"$dockerimage" \
 				"${server_args[@]}"
@@ -83,7 +91,7 @@ function module_redis () {
 		;;
 		"${commands[4]}") # help
 			show_module_help "module_redis" "$title" \
-				"Port: ${port}\nDocker Image: $dockerimage\nCache mode: set REDIS_MAXMEMORY (e.g. 48gb) at install to cap memory with LRU eviction and no disk snapshots"
+				"Port: ${port}\nDocker Image: $dockerimage\nListens on 127.0.0.1 and the Docker bridge gateway (host and local containers) only; set BIND_ADDRESS (e.g. a LAN address, or 0.0.0.0) at install to serve other hosts\nCache mode: set REDIS_MAXMEMORY (e.g. 48gb) at install to cap memory with LRU eviction and no disk snapshots"
 		;;
 		*)
 			${module_options["module_redis,feature"]} ${commands[4]}
